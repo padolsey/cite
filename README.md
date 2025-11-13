@@ -131,6 +131,11 @@ This lets you see exactly what each measure contributes.
    pnpm cli:minimal
    ```
 
+4. **Deploy to Netlify** (optional):
+   - See [DEPLOYMENT.md](DEPLOYMENT.md) for complete Netlify deployment guide
+   - Project is pre-configured with `@sveltejs/adapter-netlify` and `netlify.toml`
+   - Just connect your repo and add `OPENROUTER_API_KEY` environment variable
+
 ## CLI Usage
 
 The CLI provides a highly observable REPL interface to test CITE measures. This is often the best way to understand what's happening.

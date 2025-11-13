@@ -1,0 +1,27 @@
+[build]
+  command = "pnpm build"
+  publish = "build"
+
+[build.environment]
+  NODE_VERSION = "22.12.0"
+
+# Note: @sveltejs/adapter-netlify handles redirects automatically via _redirects file
+# Do not add [[redirects]] here - it will cause build errors
+
+# Headers for security and caching
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "interest-cohort=()"
+
+# Cache static assets
+[[headers]]
+  for = "/_app/immutable/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Environment variables to set in Netlify UI:
+# OPENROUTER_API_KEY = your OpenRouter API key (required)
