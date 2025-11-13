@@ -75,8 +75,8 @@ function printConfig(config: CITEConfig, profile: ProfileKey | 'auto') {
   console.log(`    • Max tokens: ${config.maxContextTokens}`);
   console.log(`    • Synthesis interval: ${config.synthesisInterval} messages`);
   console.log(colorize('  Interception:', 'green'));
-  console.log(`    • Filtering: ${config.enableFiltering ? '✓' : '✗'}`);
   console.log(`    • Routing: ${config.enableRouting ? '✓' : '✗'}`);
+  console.log(`    • Delegation: ${config.enableDelegation ? '✓' : '✗'}`);
   console.log(colorize('  Thinking:', 'purple'));
   console.log(`    • Enabled: ${config.enableThinking ? '✓' : '✗'}`);
   console.log(`    • Style: ${config.thinkingStyle}`);
@@ -143,14 +143,12 @@ async function main() {
     enableContextSynthesis: true,
     maxContextTokens: 4000,
     synthesisInterval: 10,
-    enableFiltering: true,
     enableRouting: true,
     enableDelegation: false,
     enableThinking: showThinking,
     thinkingStyle: 'detailed',
     enableSafetyMessaging: true,
-    enableUpskilling: true,
-    riskThreshold: 'medium'
+    enableUpskilling: true
   };
 
   let profile: ProfileKey | 'auto' = 'auto';

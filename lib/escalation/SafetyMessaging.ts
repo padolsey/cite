@@ -124,15 +124,20 @@ export class SafetyMessaging {
     // Send safety banner as metadata chunk (not inline content)
     const category = assessment.categories.find(c =>
       c === 'mental_health' || c === 'crisis' || c === 'harmful_advice'
-    ) || 'general';
+    ) || 'mental_health';
 
-    const bannerData = SAFETY_MESSAGES[category] || SAFETY_MESSAGES.mental_health;
+    const bannerData = SAFETY_MESSAGES[category];
+
+    // For harmful_advice, use alternative as resources; otherwise use resources directly
+    const resources = 'resources' in bannerData
+      ? bannerData.resources
+      : bannerData.alternative;
 
     yield {
       type: 'safety_banner',
       safetyBanner: {
         category,
-        resources: bannerData.resources,
+        resources,
         prefix: bannerData.prefix,
         mode: modeConfig.mode,
         showBreathing: modeConfig.showBreathing,

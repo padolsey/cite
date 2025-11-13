@@ -58,11 +58,30 @@
   function getRippleColor(index: number): string {
     return colors[index % colors.length];
   }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      // Create a synthetic click event at the center of the container
+      if (containerRef) {
+        const rect = containerRef.getBoundingClientRect();
+        const syntheticEvent = {
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2
+        } as MouseEvent;
+        handleClick(syntheticEvent);
+      }
+    }
+  }
 </script>
 
 <div
   bind:this={containerRef}
   onclick={handleClick}
+  onkeydown={handleKeyDown}
+  tabindex="0"
+  role="button"
+  aria-label="Tap or press Enter to create calming ripples"
   class="relative w-full h-full bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-lg overflow-hidden cursor-pointer select-none"
   style="min-height: 300px;"
 >

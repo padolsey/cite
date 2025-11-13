@@ -16,7 +16,15 @@
   let processEvents = $state<ProcessEvent[]>([]);
   let showProcessPanel = $state(true);
   let showConfig = $state(true);
-  let currentSafetyBanner = $state<{ category: string; resources: string; prefix?: string } | null>(null);
+  let currentSafetyBanner = $state<{
+    category: string;
+    resources: string;
+    prefix?: string;
+    mode: 'crisis_immediate' | 'distress_acute' | 'support_general';
+    showBreathing: boolean;
+    showGame: boolean;
+    defaultTab: 'breathing' | 'game' | 'resources';
+  } | null>(null);
 
   // Configuration
   let config = $state<CITEConfig>({
@@ -105,8 +113,6 @@
               } else if (chunk.type === 'error') {
                 console.error('Stream error:', chunk.error);
                 streamingContent += `\n\n[Error: ${chunk.error}]`;
-              } else if (chunk.type === 'done') {
-                // Done streaming
               }
             } catch (e) {
               console.error('Failed to parse chunk:', e);

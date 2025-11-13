@@ -1,5 +1,5 @@
 import type { RiskAssessment } from '../types';
-import type { ProfileKey, MODEL_PROFILES } from '../interception/Router';
+import { MODEL_PROFILES, type ProfileKey } from '../interception/Router';
 
 /**
  * Determines when to escalate to a more capable or careful model
