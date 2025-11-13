@@ -20,7 +20,7 @@ This project is configured for easy deployment to Netlify.
 2. **Build Settings** (should auto-detect)
    - Build command: `pnpm build`
    - Publish directory: `build`
-   - Node version: 20
+   - Node version: 22.12.0 (specified in netlify.toml)
 
 3. **Environment Variables**
    - Go to Site settings > Environment variables
@@ -77,8 +77,8 @@ Uses `@sveltejs/adapter-netlify` for optimal Netlify deployment.
 ### Rate Limiting
 
 The cookie-based rate limiter works out of the box on Netlify:
-- 30 requests/minute per session
-- 50 requests/minute per IP (fallback)
+- 60 requests/minute per session (cookie-based)
+- 500 requests/minute per IP (very liberal for corporate environments)
 
 ### Monitoring
 
@@ -106,14 +106,20 @@ Set these in Netlify UI (Site settings > Environment variables):
 - **Fix**: Netlify should auto-detect pnpm. If not, add `.npmrc` with `use-pnpm=true`
 
 **Error**: Node version mismatch
-- **Fix**: `netlify.toml` specifies Node 20. Verify in build logs.
+- **Fix**: `netlify.toml` specifies Node 22.12.0. Verify in build logs.
+- Local development: Run `nvm use` (requires nvm and .nvmrc file)
 
 ### Rate Limiting Issues
 
 **Users getting rate limited too easily**
 - Edit `src/hooks.server.ts`
-- Increase `rate: [30, 'm']` to `rate: [60, 'm']`
+- Increase `rate: [60, 'm']` to `rate: [120, 'm']` (cookie limit)
+- Increase `IP: [500, 'm']` to `IP: [1000, 'm']` (IP limit)
 - Redeploy
+
+**Rate limiting dialog appears immediately**
+- This was a bug, now fixed with try-catch and preflight: false
+- If still occurring, check server logs for rate limiter errors
 
 **Rate limiting not working**
 - Check that cookies are enabled in browser
