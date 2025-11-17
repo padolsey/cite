@@ -91,7 +91,8 @@ export async function getAdminStats() {
 		.select('*', { count: 'exact', head: true });
 
 	if (usersError) {
-		throw new Error(`Failed to count users: ${usersError.message}`);
+		console.error('Supabase error counting users:', usersError);
+		throw new Error(`Failed to count users: ${usersError.message || JSON.stringify(usersError)}`);
 	}
 
 	// Get total API keys
@@ -100,7 +101,8 @@ export async function getAdminStats() {
 		.select('*', { count: 'exact', head: true });
 
 	if (keysError) {
-		throw new Error(`Failed to count API keys: ${keysError.message}`);
+		console.error('Supabase error counting API keys:', keysError);
+		throw new Error(`Failed to count API keys: ${keysError.message || JSON.stringify(keysError)}`);
 	}
 
 	// Get active (non-revoked) API keys
@@ -110,7 +112,8 @@ export async function getAdminStats() {
 		.is('revoked_at', null);
 
 	if (activeKeysError) {
-		throw new Error(`Failed to count active keys: ${activeKeysError.message}`);
+		console.error('Supabase error counting active keys:', activeKeysError);
+		throw new Error(`Failed to count active keys: ${activeKeysError.message || JSON.stringify(activeKeysError)}`);
 	}
 
 	// Get total API requests
@@ -119,7 +122,8 @@ export async function getAdminStats() {
 		.select('request_count');
 
 	if (requestError) {
-		throw new Error(`Failed to get request counts: ${requestError.message}`);
+		console.error('Supabase error getting request counts:', requestError);
+		throw new Error(`Failed to get request counts: ${requestError.message || JSON.stringify(requestError)}`);
 	}
 
 	const totalRequests = requestData?.reduce((sum, row) => sum + (row.request_count || 0), 0) ?? 0;

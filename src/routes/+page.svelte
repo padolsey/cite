@@ -160,7 +160,7 @@ await db.saveRiskState(conversationId, result.risk_state);`;
           <a href="/docs" class="text-sm text-gray-600 hover:text-gray-900">
             Docs
           </a>
-          <a href="/sandbox" class="text-sm text-gray-600 hover:text-gray-900">
+          <a href="/chat-demo-sandbox" class="text-sm text-gray-600 hover:text-gray-900">
             Demo
           </a>
           <a
@@ -560,7 +560,7 @@ await db.saveRiskState(conversationId, result.risk_state);`;
           Get Started →
         </button>
         <a
-          href="/sandbox"
+          href="/chat-demo-sandbox"
           class="px-8 py-4 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-400 transition-colors border-2 border-blue-400"
         >
           Try Live Demo
@@ -589,7 +589,8 @@ await db.saveRiskState(conversationId, result.risk_state);`;
           <h3 class="text-white font-semibold mb-3">Product</h3>
           <ul class="space-y-2 text-sm">
             <li><a href="/docs" class="hover:text-white">Documentation</a></li>
-            <li><a href="/sandbox" class="hover:text-white">Demo</a></li>
+            <li><a href="/api-sandbox" class="hover:text-white">API Sandbox</a></li>
+            <li><a href="/chat-demo-sandbox" class="hover:text-white">Demo</a></li>
             <li><a href="/docs#11-rate-limiting" class="hover:text-white">Pricing</a></li>
           </ul>
         </div>

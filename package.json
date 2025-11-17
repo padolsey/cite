@@ -16,7 +16,13 @@
 		"generate:icons": "node scripts/generate-favicons.js",
 		"cli": "tsx cli/index.ts",
 		"cli:minimal": "tsx cli/index.ts --no-process --no-thinking",
-		"cli:full": "tsx cli/index.ts"
+		"cli:full": "tsx cli/index.ts",
+		"test": "vitest run --exclude '**/*.llm.test.ts'",
+		"test:llm": "vitest run",
+		"test:llm:log": "LOG_LLM_CALLS=true vitest run",
+		"test:llm:debug": "LOG_LLM_CALLS=true DEBUG_LLM=true vitest run",
+		"test:watch": "vitest --exclude '**/*.llm.test.ts'",
+		"test:ui": "vitest --ui"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-auto": "^7.0.0",
@@ -27,13 +33,16 @@
 		"@tailwindcss/vite": "^4.1.14",
 		"@types/marked": "^6.0.0",
 		"@types/node": "^22.0.0",
+		"@vitest/ui": "^4.0.9",
+		"dotenv": "^17.2.3",
 		"favicons": "^7.2.0",
 		"svelte": "^5.41.0",
 		"svelte-check": "^4.3.3",
 		"tailwindcss": "^4.1.14",
 		"tsx": "^4.19.0",
 		"typescript": "^5.9.3",
-		"vite": "^7.1.10"
+		"vite": "^7.1.10",
+		"vitest": "^4.0.9"
 	},
 	"pnpm": {
 		"onlyBuiltDependencies": [

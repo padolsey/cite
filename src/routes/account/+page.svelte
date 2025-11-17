@@ -353,7 +353,7 @@
 								📚 API Documentation
 							</a>
 							<a
-								href="/sandbox"
+								href="/chat-demo-sandbox"
 								class="block text-sm text-blue-600 hover:text-blue-700 hover:underline"
 							>
 								🎮 Try Live Demo

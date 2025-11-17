@@ -7,6 +7,9 @@ export function getSupabaseAdmin() {
 		auth: {
 			autoRefreshToken: false,
 			persistSession: false
+		},
+		db: {
+			schema: 'public'
 		}
 	});
 }

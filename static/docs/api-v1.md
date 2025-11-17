@@ -69,11 +69,12 @@ const cite = new CITEClient({
   apiKey: process.env.CITE_API_KEY
 });
 
-// Evaluate user message
-const result = await cite.evaluateSimple({
+// Evaluate user message (example: UK)
+const result = await cite.evaluate({
   messages: [
     { role: "user", content: "I've been feeling really hopeless lately" }
-  ]
+  ],
+  config: { user_country: 'GB' }  // Optional - infers from language if omitted
 });
 
 // Use the results
@@ -107,11 +108,13 @@ Get your API key at: https://cite-safety.io/dashboard
 
 ## 4. Core Endpoint: Evaluate
 
-### Simple Mode (Recommended for Getting Started)
+**POST** `/v1/evaluate`
 
-**POST** `/v1/evaluate/simple`
+Single endpoint that's simple by default and progressively enhanced with optional advanced parameters.
 
-Minimal request, essential response. Perfect for most use cases.
+### Basic Usage (Recommended for Getting Started)
+
+Minimal request with just messages and country - perfect for most use cases.
 
 #### Request
 
@@ -125,17 +128,26 @@ Minimal request, essential response. Perfect for most use cases.
     }
   ],
   "config": {
-    "user_country": "US",
-    "locale": "en-US"
+    "user_country": "CA"
   }
 }
 ```
 
-**Fields:**
+**Required Fields:**
 - `messages` - Conversation history (last 20 messages recommended)
-- `config.user_country` - ISO country code for crisis resources
-- `config.locale` - Language/region (default: "en-US")
-- `config.dry_run` - (optional) If true, evaluate but don't log or trigger webhooks
+- `config` - Configuration object (can be empty `{}`)
+
+**Optional Fields:**
+- `config.user_country` - ISO country code (e.g., "CA", "GB", "AU"). If omitted, uses language inference from messages
+- `config.locale` - Language/region (e.g., "en-CA", "fr-CA"). If omitted, infers from message content
+- `config.user_age_band` - `"adult" | "minor" | "unknown"` (default: "adult")
+- `config.dry_run` - If true, evaluate but don't log or trigger webhooks
+- `config.return_assistant_reply` - Get a safe response back (default: true)
+
+**Language Inference:** If no country is provided, the API will:
+1. Detect language from message content (English, Spanish, Portuguese, French, German, etc.)
+2. Return resources for top countries by speaker population for that language
+3. Fall back to global resources (findahelpline.com, IASP) if language is unclear
 
 #### Response
 
@@ -181,18 +193,14 @@ Minimal request, essential response. Perfect for most use cases.
 
 ---
 
-### Full Mode (Advanced)
+### Advanced Usage (Progressive Enhancement)
 
-**POST** `/v1/evaluate`
-
-For power users who need granular control, state tracking, and detailed risk analysis.
+Same `/v1/evaluate` endpoint with additional optional fields for granular control, state tracking, and detailed risk analysis.
 
 #### Request
 
 ```json
 {
-  "conversation_id": "conv_abc123",
-
   "messages": [
     {
       "role": "user",
@@ -202,19 +210,15 @@ For power users who need granular control, state tracking, and detailed risk ana
     {
       "role": "assistant",
       "content": "I'm really sorry you're going through this. Thank you for telling me."
+    },
+    {
+      "role": "user",
+      "content": "Today it's even worse. I have a plan.",
+      "timestamp": "2025-11-17T10:00:00Z"
     }
   ],
 
-  "new_message": {
-    "role": "user",
-    "content": "Today it's even worse. I have a plan.",
-    "timestamp": "2025-11-17T10:00:00Z"
-  },
-
-  "assistant_candidate": {
-    "role": "assistant",
-    "content": "I'm here for you. What's your plan?"
-  },
+  "conversation_id": "conv_abc123",
 
   "risk_state": {
     "conversation_id": "conv_abc123",
@@ -229,25 +233,20 @@ For power users who need granular control, state tracking, and detailed risk ana
   },
 
   "config": {
-    "policy_id": "default_mh",
-    "user_country": "US",
-    "user_age_band": "adult",
-    "locale": "en-US",
-    "dry_run": false,
-    "return_assistant_reply": true
+    "user_country": "AU",
+    "user_age_band": "minor",
+    "use_multiple_judges": false,
+    "dry_run": false
   }
 }
 ```
 
-**Additional Fields (vs Simple Mode):**
+**Additional Optional Fields (Progressive Enhancement):**
 
-- `conversation_id` - Your internal conversation ID
-- `new_message` - The specific message to evaluate
-- `assistant_candidate` - Your proposed response (we'll validate it or replace if unsafe)
-- `risk_state` - Previous risk state from your database (or `null` on first message)
+- `conversation_id` - Your internal conversation ID (enables risk_state tracking)
+- `risk_state` - Previous risk state from your database (for trend detection)
+- `config.use_multiple_judges` - Use multi-judge consensus (default: false)
 - `config.policy_id` - Which safety policy to use (default: "default_mh")
-- `config.user_age_band` - `"adult" | "minor" | "unknown"` - affects response templates
-- `config.return_assistant_reply` - Get a safe response back (default: true)
 
 #### Response
 
@@ -257,16 +256,31 @@ For power users who need granular control, state tracking, and detailed risk ana
   "confidence": 0.91,
   "explanation": "User reports recent suicide attempt and current active ideation with plan, indicating high imminent risk. Risk has escalated from previous medium assessment.",
 
-  "risk_types": [
+  "show_crisis_resources": true,
+  "highlight_urgency": true,
+  "allow_method_details": false,
+
+  "safe_reply": "I'm very concerned about your safety right now. What you're describing sounds incredibly painful, and I want you to know that help is available.\n\nPlease contact the 988 Suicide & Crisis Lifeline immediately by calling or texting 988. They have trained counselors available 24/7 who can help you through this.\n\nI can't ask you about the details of your plan, but I can listen to what's been happening. Are you somewhere safe right now?",
+
+  "crisis_resources": [
     {
-      "type": "self_harm_active_ideation_with_plan",
-      "confidence": 0.93
+      "type": "emergency_number",
+      "name": "Emergency Services",
+      "phone": "911",
+      "availability": "24/7",
+      "languages": ["en", "es"]
     },
     {
-      "type": "self_harm_attempt_mentioned",
-      "confidence": 0.95
+      "type": "crisis_line",
+      "name": "988 Suicide & Crisis Lifeline",
+      "phone": "988",
+      "text_instructions": "Text 988",
+      "availability": "24/7",
+      "languages": ["en", "es"]
     }
   ],
+
+  "log_recommended": true,
 
   "trend": "up",
   "trend_explanation": "Risk increased from medium to high. User now mentions specific plan.",
@@ -280,20 +294,18 @@ For power users who need granular control, state tracking, and detailed risk ana
     "trend": "up",
     "last_high_risk_at": "2025-11-17T10:00:00Z",
     "attempt_mentioned": true,
-    "attempt_recent": true,
     "safety_summary": "User reports recent suicide attempt last week, currently expressing active ideation with plan mentioned. Risk escalating.",
     "updated_at": "2025-11-17T10:00:00Z"
   },
 
   "actions": {
     "required": [
-      "show_crisis_resources",
-      "block_method_details",
-      "log_safety_event"
+      "Show crisis resources prominently",
+      "Log event for review"
     ],
     "recommended": [
-      "highlight_urgency",
-      "limit_session_length"
+      "Encourage professional support",
+      "Monitor conversation closely"
     ]
   },
 
@@ -308,52 +320,23 @@ For power users who need granular control, state tracking, and detailed risk ana
     "show_crisis_resources": true,
     "highlight_urgency": true,
     "allow_further_chat": true,
-    "require_acknowledgement": false,
-    "limit_remaining_messages": 10
-  },
-
-  "assistant_reply": {
-    "role": "assistant",
-    "content": "I'm very concerned about your safety right now. What you're describing sounds incredibly painful, and I want you to know that help is available.\n\nPlease contact the 988 Suicide & Crisis Lifeline immediately by calling or texting 988. They have trained counselors available 24/7 who can help you through this.\n\nI can't ask you about the details of your plan, but I can listen to what's been happening. Are you somewhere safe right now?",
-    "replaced_unsafe_content": true,
-    "replacement_reason": "Original response asked for plan details, which could reinforce harmful ideation."
-  },
-
-  "crisis_resources": [
-    {
-      "type": "emergency_number",
-      "name": "Emergency Services",
-      "phone": "911",
-      "availability": "24/7"
-    },
-    {
-      "type": "crisis_line",
-      "name": "988 Suicide & Crisis Lifeline",
-      "phone": "988",
-      "chat_url": "https://988lifeline.org/chat/",
-      "availability": "24/7",
-      "languages": ["en", "es"]
-    }
-  ],
-
-  "log_recommended": true
+    "require_acknowledgement": true,
+    "limit_remaining_messages": null
+  }
 }
 ```
 
-**Additional Response Fields (vs Simple Mode):**
+**Additional Response Fields (when using advanced features):**
 
-| Field | Description |
-|-------|-------------|
-| `risk_types` | Array of specific risk indicators with confidence scores |
-| `trend` | `"up" \| "down" \| "stable" \| "unknown"` - risk trajectory |
-| `trend_explanation` | Why the trend is changing |
-| `risk_state` | Updated state object to save in your database |
-| `actions.required` | Actions you MUST implement |
-| `actions.recommended` | Actions you SHOULD implement |
-| `constraints` | Specific constraints for your assistant's behavior |
-| `ui_guidance` | Detailed UI recommendations |
-| `assistant_reply.replaced_unsafe_content` | Did we replace your candidate response? |
-| `assistant_reply.replacement_reason` | Why we replaced it |
+| Field | Description | When Included |
+|-------|-------------|---------------|
+| `trend` | `"up" \| "down" \| "stable" \| "unknown"` - risk trajectory | When `risk_state` provided in request |
+| `trend_explanation` | Why the trend is changing | When `risk_state` provided |
+| `risk_state` | Updated state object to save in your database | When `conversation_id` provided |
+| `actions` | Required and recommended actions | For medium+ risk levels |
+| `constraints` | Specific constraints for your assistant's behavior | For medium+ risk levels |
+| `ui_guidance` | Detailed UI recommendations | For medium+ risk levels |
+| `agreement` | Multi-judge agreement metric (0-1) | When `use_multiple_judges: true` |
 
 ---
 
@@ -414,36 +397,6 @@ await db.saveRiskState(conversationId, result.risk_state);
 - Remember important context (previous attempts)
 - Inform escalation decisions
 - Provide continuity across conversation
-
----
-
-### Risk Types
-
-Specific risk indicators returned in full mode:
-
-#### Self-Harm & Suicide
-- `self_harm_passive_ideation` - "Sometimes I wish I wasn't here"
-- `self_harm_active_ideation_no_plan` - "I think about killing myself"
-- `self_harm_active_ideation_with_plan` - "I've been planning how to do it"
-- `self_harm_attempt_mentioned` - "I tried to kill myself last week"
-- `self_harm_method_request` - "What's the easiest way to die?"
-- `self_harm_preparatory_behavior` - "I've been stockpiling pills"
-
-#### Other Mental Health Indicators
-- `severe_depression_indicators` - Hopelessness, worthlessness, anhedonia
-- `anxiety_panic_indicators` - Severe anxiety or panic symptoms
-- `altered_perception` - Unusual perceptual experiences (not diagnostic)
-- `disorganized_thought` - Incoherent or tangential speech patterns
-
-#### General Distress
-- `general_distress` - Non-specific psychological distress
-- `grief_bereavement` - Loss and grief
-- `anger_aggression` - Anger or aggressive ideation
-
-#### Meta
-- `mh_topic_not_personal` - Discussing mental health academically
-- `joking_or_ambiguous` - Unclear if serious or joking
-- `past_treatment_mentioned` - References to therapy/treatment
 
 ---
 
@@ -744,7 +697,10 @@ Returns policy configuration (for transparency/governance).
 
 ```typescript
 try {
-  const result = await cite.evaluateSimple({ messages });
+  const result = await cite.evaluate({
+    messages,
+    config: { user_country: 'US' }
+  });
 } catch (error) {
   if (error.code === 'rate_limited') {
     // Wait and retry

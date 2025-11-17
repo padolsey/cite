@@ -148,7 +148,7 @@
         </div>
 
         <div class="flex items-center gap-4">
-          <a href="/sandbox" class="text-sm text-gray-600 hover:text-gray-900">
+          <a href="/chat-demo-sandbox" class="text-sm text-gray-600 hover:text-gray-900">
             Try Demo
           </a>
           <a

@@ -1,0 +1,137 @@
+import { describe, test, expect, beforeEach } from 'vitest';
+import { RiskClassifier } from '../../lib/classification/RiskClassifier.js';
+import { FakeProvider } from '../../lib/providers/FakeProvider.js';
+
+describe('RiskClassifier (unit tests with FakeProvider)', () => {
+  let provider: FakeProvider;
+  let classifier: RiskClassifier;
+
+  beforeEach(() => {
+    provider = new FakeProvider();
+    classifier = new RiskClassifier(provider);
+  });
+
+  test('classifies general question as none risk', async () => {
+    // Mock response
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: "What's the weather like today?" }]),
+      '<language>en</language><reflection>General knowledge question with no mental health concerns.</reflection><classification>CLASS_NONE</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: "What's the weather like today?" },
+    ]);
+
+    expect(result.risk_level).toBe('none');
+    expect(result.confidence).toBeGreaterThan(0.9);
+    expect(result.language).toBe('en');
+  });
+
+  test('classifies work stress as low risk', async () => {
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: "I'm feeling stressed about work lately" }]),
+      '<language>en</language><locale>en-US</locale><reflection>General work stress without self-harm indicators.</reflection><classification>CLASS_LOW</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: "I'm feeling stressed about work lately" },
+    ]);
+
+    expect(result.risk_level).toBe('low');
+    expect(result.confidence).toBeGreaterThan(0.7);
+    expect(result.language).toBe('en');
+    expect(result.locale).toBe('en-US');
+  });
+
+  test('classifies passive ideation as medium risk', async () => {
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: 'Sometimes I wish I could just disappear' }]),
+      '<language>en</language><reflection>Passive suicidal ideation without specific plan or intent.</reflection><classification>CLASS_MEDIUM</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: 'Sometimes I wish I could just disappear' },
+    ]);
+
+    expect(result.risk_level).toBe('medium');
+    expect(result.confidence).toBeGreaterThan(0.7);
+    expect(result.language).toBe('en');
+  });
+
+  test('classifies active ideation with method as high risk', async () => {
+    provider.addMockResponse(
+      JSON.stringify([
+        { role: 'user', content: "I've been thinking about how I'd do it" },
+      ]),
+      '<language>en</language><reflection>User has identified thinking about methods, indicating active ideation with method consideration.</reflection><classification>CLASS_HIGH</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: "I've been thinking about how I'd do it" },
+    ]);
+
+    expect(result.risk_level).toBe('high');
+    expect(result.confidence).toBeGreaterThan(0.8);
+    expect(result.language).toBe('en');
+  });
+
+  test('classifies specific plan with timeline as critical risk', async () => {
+    provider.addMockResponse(
+      JSON.stringify([
+        { role: 'user', content: "I'm going to do it tonight. I have the pills ready." },
+      ]),
+      '<language>en</language><reflection>Explicit plan with method (pills), timeframe (tonight), and intent to act. Imminent risk.</reflection><classification>CLASS_CRITICAL</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: "I'm going to do it tonight. I have the pills ready." },
+    ]);
+
+    expect(result.risk_level).toBe('critical');
+    expect(result.confidence).toBeGreaterThan(0.8);
+    expect(result.language).toBe('en');
+  });
+
+  test('handles unknown classification gracefully', async () => {
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: 'test message' }]),
+      '<language>en</language><reflection>Some reflection</reflection><classification>CLASS_UNKNOWN</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: 'test message' },
+    ]);
+
+    // Should default to medium with low confidence
+    expect(result.risk_level).toBe('medium');
+    expect(result.confidence).toBeLessThanOrEqual(0.5);
+    expect(result.language).toBe('en');
+  });
+
+  test('handles missing reflection tag', async () => {
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: 'test message' }]),
+      '<language>en</language><classification>CLASS_LOW</classification>'
+    );
+
+    const result = await classifier.classifyRisk([
+      { role: 'user', content: 'test message' },
+    ]);
+
+    expect(result.risk_level).toBe('low');
+    expect(result.explanation).toContain('No reflection provided');
+    expect(result.language).toBe('en');
+  });
+
+  test('single judge mode does not return agreement metric', async () => {
+    provider.addMockResponse(
+      JSON.stringify([{ role: 'user', content: 'test' }]),
+      '<language>en</language><reflection>Test</reflection><classification>CLASS_NONE</classification>'
+    );
+
+    const result = await classifier.classifyRisk([{ role: 'user', content: 'test' }]);
+
+    expect(result.agreement).toBeUndefined();
+    expect(result.language).toBe('en');
+  });
+});
