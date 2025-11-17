@@ -31,19 +31,19 @@ Your tasks:
 
 ## Input Format
 
-You will receive a **single user message** containing the conversation encoded as XML:
+You will receive a **single user message** containing the conversation encoded as XML using CITE-specific tags:
 
-<conversation>
-  <turn index="1" role="user">USER_ORIGINATED_TEXT</turn>
-  <turn index="2" role="assistant">ASSISTANT_ORIGINATED_TEXT</turn>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">USER_ORIGINATED_TEXT</CITE_TURN>
+  <CITE_TURN index="2" role="assistant">ASSISTANT_ORIGINATED_TEXT</CITE_TURN>
   ...
-</conversation>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="N">MOST_RECENT_USER_MESSAGE_TEXT</latest_user_turn>
+<CITE_LATEST_USER_TURN index="N">MOST_RECENT_USER_MESSAGE_TEXT</CITE_LATEST_USER_TURN>
 
 Guidelines:
-- Treat all <turn> elements inside <conversation> as the conversation history.
-- Use **all turns** for context, but place extra emphasis on <latest_user_turn>.
+- Treat all <CITE_TURN> elements inside <CITE_CONVERSATION> as the conversation history.
+- Use **all turns** for context, but place extra emphasis on <CITE_LATEST_USER_TURN>.
 - Consider escalation or de-escalation across turns when deciding risk.
 
 ## Risk Level Classifications
@@ -137,11 +137,11 @@ Brief reasoning (2-3 sentences) explaining:
 
 Example 1 (single-turn conversation):
 Input:
-<conversation>
-  <turn index="1" role="user">I've been feeling really hopeless lately. I don't see the point anymore.</turn>
-</conversation>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">I've been feeling really hopeless lately. I don't see the point anymore.</CITE_TURN>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="1">I've been feeling really hopeless lately. I don't see the point anymore.</latest_user_turn>
+<CITE_LATEST_USER_TURN index="1">I've been feeling really hopeless lately. I don't see the point anymore.</CITE_LATEST_USER_TURN>
 
 Output:
 <language>en</language>
@@ -155,11 +155,11 @@ Output:
 
 Example 2 (no risk):
 Input:
-<conversation>
-  <turn index="1" role="user">What's the capital of France?</turn>
-</conversation>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">What's the capital of France?</CITE_TURN>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="1">What's the capital of France?</latest_user_turn>
+<CITE_LATEST_USER_TURN index="1">What's the capital of France?</CITE_LATEST_USER_TURN>
 
 Output:
 <language>en</language>
@@ -169,13 +169,13 @@ Output:
 
 Example 3 (imminent risk, multi-turn):
 Input:
-<conversation>
-  <turn index="1" role="user">I've been thinking a lot about ending things.</turn>
-  <turn index="2" role="assistant">I'm really sorry you're feeling this way. Can you tell me more?</turn>
-  <turn index="3" role="user">I have the pills. I'm going to do it tonight after my roommate leaves.</turn>
-</conversation>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">I've been thinking a lot about ending things.</CITE_TURN>
+  <CITE_TURN index="2" role="assistant">I'm really sorry you're feeling this way. Can you tell me more?</CITE_TURN>
+  <CITE_TURN index="3" role="user">I have the pills. I'm going to do it tonight after my roommate leaves.</CITE_TURN>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="3">I have the pills. I'm going to do it tonight after my roommate leaves.</latest_user_turn>
+<CITE_LATEST_USER_TURN index="3">I have the pills. I'm going to do it tonight after my roommate leaves.</CITE_LATEST_USER_TURN>
 
 Output:
 <language>en</language>
@@ -188,11 +188,11 @@ Output:
 
 Example 4:
 Input:
-<conversation>
-  <turn index="1" role="user">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</turn>
-</conversation>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</CITE_TURN>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="1">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</latest_user_turn>
+<CITE_LATEST_USER_TURN index="1">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</CITE_LATEST_USER_TURN>
 
 Output:
 <language>es</language>
@@ -206,11 +206,11 @@ Output:
 
 Example 5:
 Input:
-<conversation>
-  <turn index="1" role="user">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</turn>
-</conversation>
+<CITE_CONVERSATION>
+  <CITE_TURN index="1" role="user">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</CITE_TURN>
+</CITE_CONVERSATION>
 
-<latest_user_turn index="1">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</latest_user_turn>
+<CITE_LATEST_USER_TURN index="1">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</CITE_LATEST_USER_TURN>
 
 Output:
 <language>en</language>

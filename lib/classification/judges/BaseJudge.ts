@@ -1,6 +1,6 @@
 import type { IProvider, Message } from '../../providers/IProvider.js';
 import { serializeConversation } from '../ConversationSerializer.js';
-import type { JudgeApproach } from '../ConversationSerializer.js';
+import type { JudgeApproach, ConversationStyle } from '../ConversationSerializer.js';
 
 /**
  * Base class for all judges
@@ -26,7 +26,8 @@ export abstract class BaseJudge<T> {
   constructor(
     protected provider: IProvider,
     protected model: string = 'anthropic/claude-haiku-4.5',
-    protected approach: JudgeApproach = 'full_history'
+    protected approach: JudgeApproach = 'full_history',
+    protected style: ConversationStyle = 'xml'
   ) {}
 
   /**
@@ -53,6 +54,7 @@ export abstract class BaseJudge<T> {
     // so the classifier model always sees a clearly delimited artifact to analyze.
     const conversationPayload = serializeConversation(messages, {
       approach: this.approach,
+      style: this.style,
     });
     const llmMessages: Message[] = [
       {

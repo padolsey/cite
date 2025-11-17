@@ -13,10 +13,10 @@ function buildJudgeMessagesKey(messages: ConversationMessage[]): string {
 
   lines.push(
     'The following XML contains the conversation to analyze. ' +
-      'Use all turns, but place extra emphasis on <latest_user_turn>.'
+      'Use all turns, but place extra emphasis on <CITE_LATEST_USER_TURN>.'
   );
   lines.push('');
-  lines.push('<conversation>');
+  lines.push('<CITE_CONVERSATION>');
 
   let idx = 0;
   let latestUserIndex = -1;
@@ -35,10 +35,10 @@ function buildJudgeMessagesKey(messages: ConversationMessage[]): string {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
-    lines.push(`  <turn index="${idx}" role="${msg.role}">${escaped}</turn>`);
+    lines.push(`  <CITE_TURN index="${idx}" role="${msg.role}">${escaped}</CITE_TURN>`);
   }
 
-  lines.push('</conversation>');
+  lines.push('</CITE_CONVERSATION>');
 
   if (latestUserIndex !== -1) {
     lines.push('');
@@ -47,7 +47,7 @@ function buildJudgeMessagesKey(messages: ConversationMessage[]): string {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
     lines.push(
-      `<latest_user_turn index="${latestUserIndex}">${escapedLatest}</latest_user_turn>`
+      `<CITE_LATEST_USER_TURN index="${latestUserIndex}">${escapedLatest}</CITE_LATEST_USER_TURN>`
     );
   }
 
