@@ -4,23 +4,43 @@ import { CITEEngine } from '$lib/../../lib/CITEEngine';
 import type { Message, CITEConfig } from '$lib/../../lib/types';
 import type { ProfileKey } from '$lib/../../lib/interception/Router';
 import { OPENROUTER_API_KEY } from '$env/static/private';
+import { validateApiKey } from '$lib/auth/api-keys';
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
+    // Validate CITE API key from Authorization header
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return json(
+        { error: 'Missing or invalid Authorization header. Expected: Bearer cite_live_...' },
+        { status: 401 }
+      );
+    }
+
+    const citeApiKey = authHeader.substring(7); // Remove "Bearer " prefix
+    const userId = await validateApiKey(citeApiKey);
+
+    if (!userId) {
+      return json(
+        { error: 'Invalid or revoked API key' },
+        { status: 401 }
+      );
+    }
+
     const { messages, config, profile } = await request.json() as {
       messages: Message[];
       config: CITEConfig;
       profile: ProfileKey | 'auto';
     };
 
-    // Get API key from environment
-    const apiKey = OPENROUTER_API_KEY;
-    if (!apiKey) {
+    // Get OpenRouter API key from environment
+    const openRouterApiKey = OPENROUTER_API_KEY;
+    if (!openRouterApiKey) {
       return json({ error: 'OPENROUTER_API_KEY not configured in .env file' }, { status: 500 });
     }
 
     // Create CITE engine
-    const engine = new CITEEngine(apiKey, config);
+    const engine = new CITEEngine(openRouterApiKey, config);
 
     // Create SSE stream
     const stream = new ReadableStream({

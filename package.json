@@ -8,11 +8,12 @@
 	},
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "pnpm generate:icons && vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"generate:icons": "node scripts/generate-favicons.js",
 		"cli": "tsx cli/index.ts",
 		"cli:minimal": "tsx cli/index.ts --no-process --no-thinking",
 		"cli:full": "tsx cli/index.ts"
@@ -26,6 +27,7 @@
 		"@tailwindcss/vite": "^4.1.14",
 		"@types/marked": "^6.0.0",
 		"@types/node": "^22.0.0",
+		"favicons": "^7.2.0",
 		"svelte": "^5.41.0",
 		"svelte-check": "^4.3.3",
 		"tailwindcss": "^4.1.14",
@@ -40,6 +42,8 @@
 		]
 	},
 	"dependencies": {
+		"@supabase/ssr": "^0.7.0",
+		"@supabase/supabase-js": "^2.81.1",
 		"marked": "^17.0.0",
 		"sveltekit-rate-limiter": "^0.7.0"
 	}
