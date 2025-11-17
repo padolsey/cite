@@ -111,6 +111,11 @@ export interface RiskLevelResult {
   reflection: string; // Explanation from LLM
   language?: string; // ISO 639-1 language code (e.g., 'en', 'es', 'pt')
   locale?: string; // Locale string (e.g., 'en-US', 'es-MX', 'pt-BR')
+  /**
+   * Specific risk types detected in the conversation
+   * Combined output from the same LLM call (no separate "types" pass)
+   */
+  risk_types?: RiskTypeResult[];
 }
 
 /**

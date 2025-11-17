@@ -1,12 +1,13 @@
 import { BaseJudge } from './BaseJudge.js';
 import { PROMPTS } from '../../prompts/templates.js';
-import type { RiskLevelResult, ClassificationName } from '../types/index.js';
+import type { RiskLevelResult, ClassificationName, RiskType, RiskTypeResult } from '../types/index.js';
 import { CLASSIFICATION_SCALES } from '../types/index.js';
 import {
   extractTag,
   extractLanguage,
   extractLocale,
   extractClassification,
+  extractRiskTypes,
 } from '../../utils/xml-parser.js';
 
 /**
@@ -41,6 +42,14 @@ export class RiskLevelJudge extends BaseJudge<RiskLevelResult> {
     // Extract reflection
     const reflection = extractTag(response, 'reflection') || 'No reflection provided';
 
+    // Extract structured risk types from the same response
+    const extractedTypes = extractRiskTypes(response);
+    const risk_types: RiskTypeResult[] =
+      extractedTypes.map(item => ({
+        type: item.type as RiskType,
+        confidence: item.confidence,
+      })) ?? [];
+
     // Extract classification (normalized to uppercase)
     const className = extractClassification(response) as ClassificationName | undefined;
 
@@ -66,6 +75,7 @@ export class RiskLevelJudge extends BaseJudge<RiskLevelResult> {
         reflection,
         language,
         locale,
+        risk_types,
       };
     }
 
@@ -78,6 +88,7 @@ export class RiskLevelJudge extends BaseJudge<RiskLevelResult> {
       reflection: reflection || 'Could not parse classification',
       language,
       locale,
+      risk_types,
     };
   }
 }

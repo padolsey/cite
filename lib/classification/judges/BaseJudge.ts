@@ -1,4 +1,6 @@
 import type { IProvider, Message } from '../../providers/IProvider.js';
+import { serializeConversation } from '../ConversationSerializer.js';
+import type { JudgeApproach } from '../ConversationSerializer.js';
 
 /**
  * Base class for all judges
@@ -12,9 +14,19 @@ import type { IProvider, Message } from '../../providers/IProvider.js';
  * without duplicating the streaming/aggregation logic
  */
 export abstract class BaseJudge<T> {
+  // Store last request for debugging
+  public lastRequest?: {
+    model: string;
+    messages: Message[];
+    systemPrompt: string;
+    temperature: number;
+    maxTokens: number;
+  };
+
   constructor(
     protected provider: IProvider,
-    protected model: string = 'anthropic/claude-haiku-4.5'
+    protected model: string = 'anthropic/claude-haiku-4.5',
+    protected approach: JudgeApproach = 'full_history'
   ) {}
 
   /**
@@ -34,14 +46,35 @@ export abstract class BaseJudge<T> {
    * Streams response from LLM and parses into structured result
    */
   async judge(messages: Message[]): Promise<T> {
-    // Get judge-specific prompt
+    // Get judge-specific system prompt
     const systemPrompt = this.getSystemPrompt();
+
+    // Wrap the raw conversation messages into a single, self-contained payload
+    // so the classifier model always sees a clearly delimited artifact to analyze.
+    const conversationPayload = serializeConversation(messages, {
+      approach: this.approach,
+    });
+    const llmMessages: Message[] = [
+      {
+        role: 'user',
+        content: conversationPayload,
+      },
+    ];
+
+    // Capture request for debugging (what we actually send to the provider)
+    this.lastRequest = {
+      model: this.model,
+      messages: llmMessages,
+      systemPrompt,
+      temperature: 0.1,
+      maxTokens: 1000,
+    };
 
     // Stream LLM response
     const chunks: string[] = [];
     for await (const chunk of this.provider.streamChat({
       model: this.model,
-      messages,
+      messages: llmMessages,
       systemPrompt,
       temperature: 0.1, // Low temp for consistency
       maxTokens: 1000,

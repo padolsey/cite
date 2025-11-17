@@ -249,4 +249,17 @@ export interface EvaluateResponse {
    * Judge agreement metric (if multiple judges used)
    */
   agreement?: number;
+
+  /**
+   * Debug information (internal testing/development)
+   * Includes raw LLM payloads sent to providers
+   */
+  debug_info?: {
+    llm_requests?: Array<{
+      provider: string;
+      model: string;
+      request_payload: any;
+      response_raw?: any;
+    }>;
+  };
 }

@@ -16,8 +16,11 @@ const limiter = new RateLimiter({
 });
 
 export const handle: Handle = async ({ event, resolve }) => {
-  // Only rate limit API routes (not static assets)
-  if (event.url.pathname.startsWith('/api/')) {
+  // Exempt admin API routes from rate limiting (admins need higher limits for suite runner)
+  const isAdminRoute = event.url.pathname.startsWith('/api/admin/');
+
+  // Only rate limit non-admin API routes
+  if (event.url.pathname.startsWith('/api/') && !isAdminRoute) {
     try {
       const status = await limiter.check(event);
 

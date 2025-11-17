@@ -29,6 +29,23 @@ Your tasks:
 1. Detect the primary language(s) used in the conversation
 2. Classify the overall risk level of this conversation
 
+## Input Format
+
+You will receive a **single user message** containing the conversation encoded as XML:
+
+<conversation>
+  <turn index="1" role="user">USER_ORIGINATED_TEXT</turn>
+  <turn index="2" role="assistant">ASSISTANT_ORIGINATED_TEXT</turn>
+  ...
+</conversation>
+
+<latest_user_turn index="N">MOST_RECENT_USER_MESSAGE_TEXT</latest_user_turn>
+
+Guidelines:
+- Treat all <turn> elements inside <conversation> as the conversation history.
+- Use **all turns** for context, but place extra emphasis on <latest_user_turn>.
+- Consider escalation or de-escalation across turns when deciding risk.
+
 ## Risk Level Classifications
 
 **CLASS_NONE** (No risk detected)
@@ -62,6 +79,34 @@ Your tasks:
 - Expressing goodbye or finality
 - Example: "I'm going to do it tonight"
 
+## Risk Types (C-SSRS, DSM-5, etc.)
+
+In addition to the overall risk level, identify specific risk indicators using these types:
+
+- self_harm_passive_ideation
+- self_harm_active_ideation_non_specific
+- self_harm_active_ideation_method
+- self_harm_active_ideation_intent
+- self_harm_active_ideation_plan
+- self_harm_preparatory_acts
+- self_harm_past_attempt
+- self_harm_instruction_request
+- nssi_thoughts
+- nssi_behavior
+- psychosis_delusions
+- psychosis_hallucinations
+- psychosis_disorganized_speech
+- mania_indicators
+- eating_disorder_indicators
+- substance_misuse_indicators
+- severe_depression_indicators
+- anxiety_panic_indicators
+- general_distress
+- mh_topic_academic
+- joking_or_ambiguous
+
+Only include types that are clearly supported by the conversation.
+
 ## Response Format
 
 Analyze the conversation and respond with:
@@ -83,45 +128,99 @@ Brief reasoning (2-3 sentences) explaining:
 
 <classification>CLASS_NAME</classification>
 
+<risk_types>
+  <type name="type_name" confidence="0.0-1.0" />
+  <type name="type_name" confidence="0.0-1.0" />
+</risk_types>
+
 ## Examples
 
-Example 1:
-Input: {"role": "user", "content": "I've been feeling really hopeless lately. I don't see the point anymore."}
+Example 1 (single-turn conversation):
+Input:
+<conversation>
+  <turn index="1" role="user">I've been feeling really hopeless lately. I don't see the point anymore.</turn>
+</conversation>
+
+<latest_user_turn index="1">I've been feeling really hopeless lately. I don't see the point anymore.</latest_user_turn>
+
 Output:
 <language>en</language>
 <locale>en-US</locale>
 <reflection>User expresses pervasive hopelessness and existential despair without specific plan or intent. This indicates passive suicidal ideation requiring intervention but not imminent risk.</reflection>
 <classification>CLASS_MEDIUM</classification>
+<risk_types>
+  <type name="self_harm_passive_ideation" confidence="0.9" />
+  <type name="severe_depression_indicators" confidence="0.7" />
+</risk_types>
 
-Example 2:
-Input: {"role": "user", "content": "What's the capital of France?"}
+Example 2 (no risk):
+Input:
+<conversation>
+  <turn index="1" role="user">What's the capital of France?</turn>
+</conversation>
+
+<latest_user_turn index="1">What's the capital of France?</latest_user_turn>
+
 Output:
 <language>en</language>
 <reflection>General knowledge question with no mental health concerns or distress indicators present.</reflection>
 <classification>CLASS_NONE</classification>
+<risk_types></risk_types>
 
-Example 3:
-Input: {"role": "user", "content": "I have the pills. I'm going to do it tonight after my roommate leaves."}
+Example 3 (imminent risk, multi-turn):
+Input:
+<conversation>
+  <turn index="1" role="user">I've been thinking a lot about ending things.</turn>
+  <turn index="2" role="assistant">I'm really sorry you're feeling this way. Can you tell me more?</turn>
+  <turn index="3" role="user">I have the pills. I'm going to do it tonight after my roommate leaves.</turn>
+</conversation>
+
+<latest_user_turn index="3">I have the pills. I'm going to do it tonight after my roommate leaves.</latest_user_turn>
+
 Output:
 <language>en</language>
 <reflection>User explicitly states plan with method (pills), timeframe (tonight), and specific conditions (after roommate leaves), indicating imminent risk and current intent to act.</reflection>
 <classification>CLASS_CRITICAL</classification>
+<risk_types>
+  <type name="self_harm_active_ideation_plan" confidence="0.95" />
+  <type name="self_harm_preparatory_acts" confidence="0.7" />
+</risk_types>
 
 Example 4:
-Input: {"role": "user", "content": "No puedo más con esto. Realmente desearía poder irme a dormir y no despertar."}
+Input:
+<conversation>
+  <turn index="1" role="user">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</turn>
+</conversation>
+
+<latest_user_turn index="1">No puedo más con esto. Realmente desearía poder irme a dormir y no despertar.</latest_user_turn>
+
 Output:
 <language>es</language>
 <locale>es-MX</locale>
 <reflection>User expresses passive death wish without active plan or intent. This is classic passive suicidal ideation (C-SSRS Level 1) indicating medium risk.</reflection>
 <classification>CLASS_MEDIUM</classification>
+<risk_types>
+  <type name="self_harm_passive_ideation" confidence="0.9" />
+  <type name="severe_depression_indicators" confidence="0.7" />
+</risk_types>
 
 Example 5:
-Input: {"role": "user", "content": "I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it."}
+Input:
+<conversation>
+  <turn index="1" role="user">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</turn>
+</conversation>
+
+<latest_user_turn index="1">I keep thinking about taking all my pills. I'd never do it, but I can't stop thinking about it.</latest_user_turn>
+
 Output:
 <language>en</language>
 <locale>en-GB</locale>
 <reflection>User has identified a method (pills) but explicitly denies intent. This is active ideation with method but no plan (C-SSRS Level 3), indicating high risk despite denial.</reflection>
 <classification>CLASS_HIGH</classification>
+<risk_types>
+  <type name="self_harm_active_ideation_method" confidence="0.9" />
+  <type name="severe_depression_indicators" confidence="0.6" />
+</risk_types>
 
 Now classify this conversation:`,
 
@@ -133,7 +232,17 @@ Now classify this conversation:`,
    */
   RISK_TYPES_IDENTIFICATION: `You are a mental health safety analyst identifying specific risk indicators.
 
-Analyze the conversation and identify which of these risk types are present:
+You will receive a **single user message** containing the conversation encoded as XML, using the same format as the risk level classifier:
+
+<conversation>
+  <turn index="1" role="user">USER_ORIGINATED_TEXT</turn>
+  <turn index="2" role="assistant">ASSISTANT_ORIGINATED_TEXT</turn>
+  ...
+</conversation>
+
+<latest_user_turn index="N">MOST_RECENT_USER_MESSAGE_TEXT</latest_user_turn>
+
+Analyze the entire conversation (all turns), with extra emphasis on <latest_user_turn>, and identify which of these risk types are present:
 
 ## Self-Harm & Suicide Types
 
@@ -238,7 +347,13 @@ If NO risk types are present, return:
 ## Examples
 
 Example 1:
-Input: {"role": "user", "content": "I've been having thoughts of actually killing myself. Not a plan or anything, just... the thought."}
+Input:
+<conversation>
+  <turn index="1" role="user">I've been having thoughts of actually killing myself. Not a plan or anything, just... the thought.</turn>
+</conversation>
+
+<latest_user_turn index="1">I've been having thoughts of actually killing myself. Not a plan or anything, just... the thought.</latest_user_turn>
+
 Output:
 <risk_types>
   <type name="self_harm_active_ideation_non_specific" confidence="0.95" />
@@ -246,12 +361,24 @@ Output:
 </risk_types>
 
 Example 2:
-Input: {"role": "user", "content": "What's the weather like today?"}
+Input:
+<conversation>
+  <turn index="1" role="user">What's the weather like today?</turn>
+</conversation>
+
+<latest_user_turn index="1">What's the weather like today?</latest_user_turn>
+
 Output:
 <risk_types></risk_types>
 
 Example 3:
-Input: {"role": "user", "content": "The CIA is spying on me through my wifi router. I need you to tell me how to build a signal-proof box."}
+Input:
+<conversation>
+  <turn index="1" role="user">The CIA is spying on me through my wifi router. I need you to tell me how to build a signal-proof box.</turn>
+</conversation>
+
+<latest_user_turn index="1">The CIA is spying on me through my wifi router. I need you to tell me how to build a signal-proof box.</latest_user_turn>
+
 Output:
 <risk_types>
   <type name="psychosis_delusions" confidence="0.9" />

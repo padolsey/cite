@@ -11,6 +11,60 @@ import { ResourceResolver } from '../../lib/resources/ResourceResolver.js';
 import { FakeProvider } from '../../lib/providers/FakeProvider.js';
 import type { EvaluateRequest } from '../../lib/evaluation/types.js';
 
+type ConversationMessage = { role: 'user' | 'assistant'; content: string };
+
+/**
+ * Build the exact messages key that BaseJudge / classifiers send to providers.
+ * Mirrors BaseJudge.buildConversationPayload so FakeProvider can match on it.
+ */
+function buildJudgeMessagesKey(messages: ConversationMessage[]): string {
+  const lines: string[] = [];
+
+  lines.push(
+    'The following XML contains the conversation to analyze. ' +
+      'Use all turns, but place extra emphasis on <latest_user_turn>.'
+  );
+  lines.push('');
+  lines.push('<conversation>');
+
+  let idx = 0;
+  let latestUserIndex = -1;
+  let latestUserContent = '';
+
+  for (const msg of messages) {
+    if (msg.role !== 'user' && msg.role !== 'assistant') continue;
+
+    idx += 1;
+    if (msg.role === 'user') {
+      latestUserIndex = idx;
+      latestUserContent = msg.content;
+    }
+
+    const escaped = msg.content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    lines.push(`  <turn index="${idx}" role="${msg.role}">${escaped}</turn>`);
+  }
+
+  lines.push('</conversation>');
+
+  if (latestUserIndex !== -1) {
+    lines.push('');
+    const escapedLatest = latestUserContent
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    lines.push(
+      `<latest_user_turn index="${latestUserIndex}">${escapedLatest}</latest_user_turn>`
+    );
+  }
+
+  const payload = lines.join('\n');
+  const llmMessages = [{ role: 'user', content: payload }];
+  return JSON.stringify(llmMessages);
+}
+
 describe('Evaluator', () => {
   let provider: FakeProvider;
   let classifier: RiskClassifier;
@@ -29,7 +83,9 @@ describe('Evaluator', () => {
    */
   test('evaluates general conversation as none risk', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: "What's the weather today?" }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: "What's the weather today?" },
+      ]),
       '<reflection>General question about weather</reflection><classification>CLASS_NONE</classification>'
     );
 
@@ -57,7 +113,9 @@ describe('Evaluator', () => {
    */
   test('evaluates passive ideation as medium risk with constraints', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'I wish I could just not wake up' }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: 'I wish I could just not wake up' },
+      ]),
       '<reflection>Passive suicidal ideation detected</reflection><classification>CLASS_MEDIUM</classification>'
     );
 
@@ -93,7 +151,9 @@ describe('Evaluator', () => {
    */
   test('evaluates imminent plan as critical risk with urgent guidance', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: "I'm doing it tonight. I have the pills." }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: "I'm doing it tonight. I have the pills." },
+      ]),
       '<reflection>Imminent risk with specific plan and means</reflection><classification>CLASS_CRITICAL</classification>'
     );
 
@@ -127,7 +187,9 @@ describe('Evaluator', () => {
    */
   test('safe reply differs for minor vs adult', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'I feel hopeless' }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: 'I feel hopeless' },
+      ]),
       '<reflection>Expression of hopelessness</reflection><classification>CLASS_MEDIUM</classification>'
     );
 
@@ -161,7 +223,9 @@ describe('Evaluator', () => {
    */
   test('skips safe reply when return_assistant_reply=false', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: "What's the weather?" }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: "What's the weather?" },
+      ]),
       '<reflection>General question</reflection><classification>CLASS_NONE</classification>'
     );
 
@@ -183,7 +247,7 @@ describe('Evaluator', () => {
    */
   test('resolves country-specific crisis resources', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'I feel sad' }]),
+      buildJudgeMessagesKey([{ role: 'user', content: 'I feel sad' }]),
       '<reflection>Expression of sadness</reflection><classification>CLASS_LOW</classification>'
     );
 
@@ -209,7 +273,7 @@ describe('Evaluator', () => {
    */
   test('calculates risk trend from previous state', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'I have a plan now' }]),
+      buildJudgeMessagesKey([{ role: 'user', content: 'I have a plan now' }]),
       '<reflection>Active planning detected</reflection><classification>CLASS_HIGH</classification>'
     );
 
@@ -242,7 +306,9 @@ describe('Evaluator', () => {
    */
   test('builds risk state when conversation_id provided', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'I feel overwhelmed' }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: 'I feel overwhelmed' },
+      ]),
       '<reflection>Expression of overwhelm</reflection><classification>CLASS_LOW</classification>'
     );
 
@@ -267,7 +333,9 @@ describe('Evaluator', () => {
    */
   test('risk state tracks maximum risk seen', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: 'Actually, I feel better now' }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: 'Actually, I feel better now' },
+      ]),
       '<reflection>Improved mood</reflection><classification>CLASS_LOW</classification>'
     );
 
@@ -301,7 +369,9 @@ describe('Evaluator', () => {
    */
   test('low risk does not include advanced fields', async () => {
     provider.addMockResponse(
-      JSON.stringify([{ role: 'user', content: "I'm feeling stressed" }]),
+      buildJudgeMessagesKey([
+        { role: 'user', content: "I'm feeling stressed" },
+      ]),
       '<reflection>General stress</reflection><classification>CLASS_LOW</classification>'
     );
 

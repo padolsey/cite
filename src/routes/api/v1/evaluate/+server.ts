@@ -13,7 +13,6 @@ import { OPENROUTER_API_KEY } from '$env/static/private';
 import { validateApiKey } from '$lib/auth/api-keys';
 import { Evaluator } from '$lib/../../lib/evaluation/Evaluator.js';
 import { RiskClassifier } from '$lib/../../lib/classification/RiskClassifier.js';
-import { RiskTypesJudge } from '$lib/../../lib/classification/judges/RiskTypesJudge.js';
 import { DatabaseResourceResolver } from '$lib/../../lib/resources/DatabaseResourceResolver.js';
 import { OpenRouterProvider } from '$lib/../../lib/providers/OpenRouterProvider.js';
 import type { EvaluateRequest, EvaluateResponse } from '$lib/../../lib/evaluation/types.js';
@@ -93,9 +92,6 @@ export const POST: RequestHandler = async ({ request }) => {
       useMultipleJudges: body.config.use_multiple_judges,
     });
 
-    // Dedicated judge for specific risk types (self-harm, psychosis, etc.)
-    const riskTypesJudge = new RiskTypesJudge(provider);
-
     // Use database-backed resource resolver with Supabase admin client
     const supabase = getSupabaseAdmin();
     const resourceResolver = new DatabaseResourceResolver(supabase);
@@ -103,7 +99,6 @@ export const POST: RequestHandler = async ({ request }) => {
     const evaluator = new Evaluator({
       classifier,
       resourceResolver,
-      riskTypesJudge,
     });
 
     // 6. Evaluate (with dry run check)

@@ -14,7 +14,6 @@
 import type { EvaluateRequest, EvaluateResponse, RiskState } from './types.js';
 import type { RiskLevel } from '../classification/types/index.js';
 import { RiskClassifier } from '../classification/RiskClassifier.js';
-import { RiskTypesJudge } from '../classification/judges/RiskTypesJudge.js';
 import type { IResourceResolver } from '../resources/IResourceResolver.js';
 import { resolveCountryCodes } from '../resources/LanguageToCountry.js';
 import {
@@ -29,11 +28,6 @@ import { RISK_LEVEL_SCORES } from '../classification/types/index.js';
 export interface EvaluatorDependencies {
   classifier: RiskClassifier;
   resourceResolver: IResourceResolver;
-  /**
-   * Optional: judge for specific risk types (self-harm, psychosis, etc.)
-   * If provided, risk_types will be populated for medium+ risk.
-   */
-  riskTypesJudge?: RiskTypesJudge;
 }
 
 /**
@@ -42,12 +36,10 @@ export interface EvaluatorDependencies {
 export class Evaluator {
   private classifier: RiskClassifier;
   private resourceResolver: IResourceResolver;
-  private riskTypesJudge?: RiskTypesJudge;
 
   constructor(dependencies: EvaluatorDependencies) {
     this.classifier = dependencies.classifier;
     this.resourceResolver = dependencies.resourceResolver;
-    this.riskTypesJudge = dependencies.riskTypesJudge;
   }
 
   /**
@@ -57,8 +49,17 @@ export class Evaluator {
     const { messages, config, risk_state: previousState, conversation_id } = request;
 
     // 1. Classify risk level (includes language detection)
-    const classification = await this.classifier.classifyRisk(messages);
-    const { risk_level, confidence, explanation, agreement, language, locale } = classification;
+    const classification = await this.classifier.classifyRisk(messages, true); // Include debug info
+    const {
+      risk_level,
+      confidence,
+      explanation,
+      agreement,
+      language,
+      locale,
+      risk_types,
+      debug_requests,
+    } = classification;
 
     // 2. Generate safe response (if requested)
     const safe_reply = config.return_assistant_reply !== false
@@ -92,14 +93,11 @@ export class Evaluator {
       log_recommended: shouldLogEvent(risk_level),
     };
 
-    // 5. Progressive enhancement: risk types (if judge available and risk is medium+)
+    // 5. Progressive enhancement: risk types (from same LLM call, for medium+ risk)
     const isMediumPlus =
       risk_level === 'medium' || risk_level === 'high' || risk_level === 'critical';
-    if (this.riskTypesJudge && isMediumPlus) {
-      response.risk_types = await this.riskTypesJudge.judge(
-        // Evaluator messages are structurally compatible with provider messages
-        request.messages as any
-      );
+    if (isMediumPlus && risk_types && risk_types.length > 0) {
+      response.risk_types = risk_types;
     }
 
     // 6. Progressive enhancement: Add advanced fields if needed
@@ -145,6 +143,26 @@ export class Evaluator {
     // Agreement metric (if multiple judges used)
     if (agreement !== undefined) {
       response.agreement = agreement;
+    }
+
+    // Debug info (LLM requests)
+    if (debug_requests && debug_requests.length > 0) {
+      response.debug_info = {
+        llm_requests: debug_requests.map(req => ({
+          provider: 'openrouter',
+          model: req.model,
+          request_payload: {
+            model: req.model,
+            messages: [
+              { role: 'system', content: req.systemPrompt },
+              ...req.messages
+            ],
+            temperature: req.temperature,
+            max_tokens: req.maxTokens,
+            stream: true,
+          },
+        })),
+      };
     }
 
     return response;

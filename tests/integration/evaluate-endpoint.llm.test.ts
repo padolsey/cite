@@ -10,7 +10,6 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { Evaluator } from '../../lib/evaluation/Evaluator.js';
 import { RiskClassifier } from '../../lib/classification/RiskClassifier.js';
-import { RiskTypesJudge } from '../../lib/classification/judges/RiskTypesJudge.js';
 import { ResourceResolver } from '../../lib/resources/ResourceResolver.js';
 import { OpenRouterProvider } from '../../lib/providers/OpenRouterProvider.js';
 import type { EvaluateRequest, EvaluateResponse } from '../../lib/evaluation/types.js';
@@ -18,7 +17,6 @@ import type { EvaluateRequest, EvaluateResponse } from '../../lib/evaluation/typ
 describe('Evaluate Endpoint Integration (E2E)', () => {
   let provider: OpenRouterProvider;
   let classifier: RiskClassifier;
-  let riskTypesJudge: RiskTypesJudge;
   let resourceResolver: ResourceResolver;
   let evaluator: Evaluator;
 
@@ -30,9 +28,8 @@ describe('Evaluate Endpoint Integration (E2E)', () => {
 
     provider = new OpenRouterProvider(process.env.OPENROUTER_API_KEY);
     classifier = new RiskClassifier(provider);
-    riskTypesJudge = new RiskTypesJudge(provider);
     resourceResolver = new ResourceResolver();
-    evaluator = new Evaluator({ classifier, resourceResolver, riskTypesJudge });
+    evaluator = new Evaluator({ classifier, resourceResolver });
   });
 
   /**

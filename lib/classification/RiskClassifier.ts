@@ -3,6 +3,7 @@ import { RiskLevelJudge } from './judges/RiskLevelJudge.js';
 import type {
   RiskLevel,
   RiskLevelResult,
+  RiskTypeResult,
   ClassificationConfig,
 } from './types/index.js';
 import { RISK_LEVEL_SCORES, scoreToRiskLevel } from './types/index.js';
@@ -47,24 +48,44 @@ export class RiskClassifier {
    * Single judge: Returns that judge's result
    * Multiple judges: Returns averaged result with agreement metric
    */
-  async classifyRisk(messages: Message[]): Promise<{
+  async classifyRisk(messages: Message[], includeDebug: boolean = false): Promise<{
     risk_level: RiskLevel;
     confidence: number;
     explanation: string;
     language?: string; // ISO 639-1 language code
     locale?: string; // Locale string (e.g., 'en-US')
+    /**
+     * Specific risk types detected (combined from the same LLM call)
+     */
+    risk_types?: RiskTypeResult[];
     agreement?: number; // Only present if using multiple judges
+    debug_requests?: Array<{
+      model: string;
+      messages: Message[];
+      systemPrompt: string;
+      temperature: number;
+      maxTokens: number;
+    }>;
   }> {
     if (this.judges.length === 1) {
       // Single judge mode
       const result = await this.judges[0].judge(messages);
-      return {
+
+      const response: any = {
         risk_level: result.level,
         confidence: result.confidence,
         explanation: result.reflection,
         language: result.language,
         locale: result.locale,
+        risk_types: result.risk_types,
       };
+
+      // Include debug info if requested
+      if (includeDebug && this.judges[0].lastRequest) {
+        response.debug_requests = [this.judges[0].lastRequest];
+      }
+
+      return response;
     }
 
     // Multi-judge mode
@@ -87,19 +108,45 @@ export class RiskClassifier {
     const language = results[0].language;
     const locale = results[0].locale;
 
+    // Combine risk types across judges by taking the max confidence per type
+    const riskTypeConfidence: Map<string, number> = new Map();
+    for (const result of results) {
+      for (const rt of result.risk_types ?? []) {
+        const prev = riskTypeConfidence.get(rt.type) ?? 0;
+        if (rt.confidence > prev) {
+          riskTypeConfidence.set(rt.type, rt.confidence);
+        }
+      }
+    }
+    const risk_types: RiskTypeResult[] =
+      Array.from(riskTypeConfidence.entries()).map(([type, conf]) => ({
+        type: type as RiskTypeResult['type'],
+        confidence: conf,
+      }));
+
     // Warn if low agreement
     if (agreement < 0.67) {
       console.warn(`Low judge agreement: ${agreement.toFixed(2)}`);
     }
 
-    return {
+    const response: any = {
       risk_level,
       confidence,
       explanation,
       language,
       locale,
       agreement,
+      risk_types: risk_types.length > 0 ? risk_types : undefined,
     };
+
+    // Include debug info if requested
+    if (includeDebug) {
+      response.debug_requests = this.judges
+        .map(judge => judge.lastRequest)
+        .filter(req => req !== undefined);
+    }
+
+    return response;
   }
 
   /**
