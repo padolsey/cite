@@ -1,7 +1,24 @@
-# CITE Safety API - Technical Documentation
+# CITE Safety API - v2 Planning Document
 
-**Version:** v1.0
-**Base URL:** `https://api.cite-safety.io/v1`
+> **Note:** This document represents the COMPLEX, feature-rich version of the API that was deemed too complicated for v1.
+>
+> Use this for planning v2 features such as:
+> - Session management (service-managed state)
+> - Advanced analytics endpoints
+> - Batch evaluation
+> - Custom policy management
+> - Human review queue endpoints
+> - Test result submission and analysis
+> - Multi-modal support (images, voice)
+>
+> For the actual v1 API (simplified), see `/static/docs/api-v1.md`
+
+---
+
+# CITE Safety API - Technical Documentation (v2 - Advanced Features)
+
+**Version:** v2.0 (PLANNING)
+**Base URL:** `https://api.cite-safety.io/v2` (future)
 **Audience:** Engineers integrating mental-health-aware safety into conversational AI systems.
 
 ---
