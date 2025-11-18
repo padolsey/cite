@@ -1,5 +1,7 @@
 <script lang="ts">
   import AuthModal from '$lib/components/AuthModal.svelte';
+  import { onMount } from 'svelte';
+  import { createHighlighter } from 'shiki';
 
   let showAuthModal = $state(false);
 
@@ -70,35 +72,168 @@
     }
   ];
 
-  let codeExample = `import { CITEClient } from '@cite-safety/client';
+  type ExampleKey = 'ts_basic' | 'ts_advanced' | 'curl' | 'python';
+
+  let selectedExample = $state<ExampleKey>('ts_basic');
+  let copyLabel = $state('Copy');
+  let highlightedExamples = $state<Partial<Record<ExampleKey, string>>>({});
+
+  const exampleOrder: ExampleKey[] = ['ts_basic', 'ts_advanced', 'curl', 'python'];
+
+  const codeExamples: Record<
+    ExampleKey,
+    { label: string; language: string; code: string }
+  > = {
+    ts_basic: {
+      label: 'TypeScript (basic)',
+      language: 'ts',
+      code: `import { CITEClient } from '@cite-safety/client';
 
 const cite = new CITEClient({
   apiKey: process.env.CITE_API_KEY
 });
 
+// Minimal usage: single-turn evaluation
 const result = await cite.evaluate({
-  messages: conversationHistory,
-  new_message: userInput,
-  risk_state: savedRiskState,
+  messages: [
+    { role: 'user', content: "I've been feeling really hopeless lately" }
+  ],
   config: {
-    policy_id: 'default_mh',
-    user_country: 'US'
+    user_country: 'US' // optional (will infer from language if omitted)
   }
 });
 
-// Get structured risk assessment with confidence
-console.log(result.risk_level);      // "high"
-console.log(result.confidence);      // 0.87
-console.log(result.suicide_severity); // 3 (inspired by C-SSRS)
+console.log(result.risk_level);   // "medium"
+console.log(result.safe_reply);   // safe response text`
+    },
+    ts_advanced: {
+      label: 'TypeScript (multi-turn, trends)',
+      language: 'ts',
+      code: `import { CITEClient } from '@cite-safety/client';
+
+const cite = new CITEClient({
+  apiKey: process.env.CITE_API_KEY
+});
+
+// Multi-turn conversation with risk_state tracking
+const result = await cite.evaluate({
+  messages: conversationHistory, // full or recent history
+  config: {
+    user_country: 'US',
+    user_age_band: 'adult',
+    use_multiple_judges: true
+  },
+  conversation_id: conversationId,
+  risk_state: savedRiskState // optional previous state for trend detection
+});
+
+// Structured risk assessment
+console.log(result.risk_level);       // "high"
+console.log(result.confidence);       // 0.87
+console.log(result.risk_types);       // ["self_harm_active_ideation_plan", ...]
+console.log(result.distress_level);   // "high"
+console.log(result.trend);            // "up" | "down" | "stable"
 
 // Use escalation guidance
-if (result.risk_level === 'critical') {
-  await showCrisisUI(result.escalation_plan.template_messages);
-  await notifySafetyTeam(result);
+if (result.recommended_routing === 'immediate_human_intervention') {
+  showCrisisBanner(result.crisis_resources);
+  notifySafetyTeam(result);
 }
 
+// Send a safe response
+sendToUser(result.recommended_reply?.content ?? result.safe_reply);
+
 // Save updated risk state
-await db.saveRiskState(conversationId, result.risk_state);`;
+if (result.risk_state) {
+  await db.saveRiskState(conversationId, result.risk_state);
+}`
+    },
+    curl: {
+      label: 'cURL',
+      language: 'bash',
+      code: `curl -X POST https://api.cite-safety.io/v1/evaluate \\
+  -H "Authorization: Bearer $CITE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "messages": [
+      { "role": "user", "content": "I\\'ve been feeling really hopeless lately" }
+    ],
+    "config": {
+      "user_country": "US"
+    }
+  }'`
+    },
+    python: {
+      label: 'Python (requests)',
+      language: 'python',
+      code: `import os
+import requests
+
+API_KEY = os.environ.get("CITE_API_KEY")
+
+payload = {
+    "messages": [
+        {"role": "user", "content": "I've been feeling really hopeless lately"}
+    ],
+    "config": {
+        "user_country": "US",
+    },
+}
+
+resp = requests.post(
+    "https://api.cite-safety.io/v1/evaluate",
+    headers={
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+    },
+    json=payload,
+    timeout=10,
+)
+
+resp.raise_for_status()
+result = resp.json()
+
+print(result["risk_level"])
+print(result.get("safe_reply"))`
+    }
+  };
+
+  async function copyCurrentExample() {
+    const example = codeExamples[selectedExample];
+    await navigator.clipboard.writeText(example.code);
+    copyLabel = '✓ Copied';
+    setTimeout(() => {
+      copyLabel = 'Copy';
+    }, 2000);
+  }
+
+  onMount(async () => {
+    try {
+      const highlighter = await createHighlighter({
+        themes: ['github-dark'],
+        langs: ['typescript', 'bash', 'python']
+      });
+
+      const entries: [ExampleKey, string][] = [];
+      for (const key of exampleOrder) {
+        const { language, code } = codeExamples[key];
+        const langMap: Record<string, string> = {
+          'ts': 'typescript',
+          'bash': 'bash',
+          'python': 'python'
+        };
+        const html = highlighter.codeToHtml(code, {
+          lang: langMap[language] || language,
+          theme: 'github-dark'
+        });
+        entries.push([key, html]);
+      }
+
+      highlightedExamples = Object.fromEntries(entries) as Partial<Record<ExampleKey, string>>;
+    } catch (e) {
+      console.error('Failed to initialize syntax highlighting with Shiki:', e);
+    }
+  });
 
   let comparison = [
     {
@@ -109,7 +244,7 @@ await db.saveRiskState(conversationId, result.risk_state);`;
     {
       aspect: 'Granularity',
       generic: '"Self-harm: Yes/No" binary',
-      cite: 'Severity levels (0-5) with confidence'
+      cite: 'Named risk levels + risk tags, distress levels, and trends with confidence'
     },
     {
       aspect: 'Guidance',
@@ -252,7 +387,7 @@ await db.saveRiskState(conversationId, result.risk_state);`;
           <h3 class="font-semibold text-gray-900 mb-2">✓ CITE Mental Health Safety</h3>
           <ul class="text-sm text-gray-600 space-y-2">
             <li>• Tracks risk over full conversation with trend detection</li>
-            <li>• Severity levels (0-5) with confidence scores</li>
+            <li>• Named risk levels (none–critical) with confidence and trends</li>
             <li>• Actionable plans: show resources, block advice, notify human</li>
             <li>• Clinically-grounded taxonomy inspired by C-SSRS & DSM-5</li>
           </ul>
@@ -295,20 +430,40 @@ await db.saveRiskState(conversationId, result.risk_state);`;
       <div class="max-w-4xl mx-auto">
         <div class="bg-gray-800 rounded-lg overflow-hidden">
           <div class="flex items-center justify-between px-4 py-2 bg-gray-700 border-b border-gray-600">
-            <span class="text-sm text-gray-300 font-mono">example.ts</span>
+            <div class="flex items-center gap-2">
+              {#each exampleOrder as key}
+                <button
+                  type="button"
+                  class={`px-3 py-1 text-xs rounded-md font-medium ${
+                    selectedExample === key
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  }`}
+                  onclick={() => (selectedExample = key as ExampleKey)}
+                >
+                  {codeExamples[key as ExampleKey].label}
+                </button>
+              {/each}
+            </div>
             <button
-              onclick={(e) => {
-                navigator.clipboard.writeText(codeExample);
-                const btn = e.target;
-                btn.textContent = '✓ Copied';
-                setTimeout(() => btn.textContent = 'Copy', 2000);
-              }}
+              type="button"
+              onclick={copyCurrentExample}
               class="text-xs text-gray-400 hover:text-white transition-colors"
             >
-              Copy
+              {copyLabel}
             </button>
           </div>
-          <pre class="p-6 overflow-x-auto text-sm"><code>{codeExample}</code></pre>
+          <div class="p-6">
+            {#if highlightedExamples[selectedExample]}
+              <div class="overflow-x-auto">
+                {@html highlightedExamples[selectedExample]}
+              </div>
+            {:else if codeExamples[selectedExample]}
+              <pre class={`overflow-x-auto text-sm language-${codeExamples[selectedExample].language}`}>
+                <code>{codeExamples[selectedExample].code}</code>
+              </pre>
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -645,7 +800,27 @@ await db.saveRiskState(conversationId, result.risk_state);`;
     font-family: 'Courier New', monospace;
   }
 
+  /* Remove default padding from Shiki-generated pre elements */
+  :global(.shiki) {
+    padding: 0 !important;
+    margin: 0;
+    background-color: transparent !important;
+  }
+
   code {
     color: #e5e7eb;
+  }
+
+  /* Simple language-based accents for code examples */
+  .language-ts code {
+    color: #a5b4fc; /* indigo-200 */
+  }
+
+  .language-bash code {
+    color: #6ee7b7; /* emerald-300 */
+  }
+
+  .language-python code {
+    color: #fca5a5; /* red-300 */
   }
 </style>

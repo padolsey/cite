@@ -60,10 +60,12 @@ export interface ProgressCallback {
 
 // Model pricing (per 1M tokens) - Update these as needed
 const MODEL_PRICING = {
-  'anthropic/claude-haiku-4.5': { input: 0.25, output: 1.25 },
+  'anthropic/claude-haiku-4.5': { input: 1, output: 5 },
   'anthropic/claude-sonnet-4.5': { input: 3.0, output: 15.0 },
-  'anthropic/claude-opus-4.5': { input: 15.0, output: 75.0 },
+  'anthropic/claude-opus-4.1': { input: 15.0, output: 75.0 },
   'openai/gpt-4o': { input: 2.5, output: 10.0 },
+  'qwen/qwen3-32b': { input: 0.05, output: 0.20 },
+  'openai/gpt-oss-120b': { input: 0.04, output: 0.40 }
 } as const;
 
 /**

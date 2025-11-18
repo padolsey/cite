@@ -17,11 +17,13 @@ import type {
   RiskState,
   DistressLevel,
   Trend,
+  CrisisResource,
 } from './types.js';
 import type { RiskLevel, RiskTypeResult } from '../classification/types/index.js';
 import { RiskClassifier } from '../classification/RiskClassifier.js';
 import type { IResourceResolver } from '../resources/IResourceResolver.js';
 import { resolveCountryCodes } from '../resources/LanguageToCountry.js';
+import { serializeConversation } from '../classification/ConversationSerializer.js';
 import {
   getSafeResponse,
   shouldShowCrisisResources,
@@ -30,10 +32,19 @@ import {
   shouldLogEvent,
 } from '../responses/templates.js';
 import { RISK_LEVEL_SCORES } from '../classification/types/index.js';
+import type { IProvider, Message as ProviderMessage } from '../providers/IProvider.js';
+import { PROMPTS } from '../prompts/templates.js';
+import { ModelSelector } from '../providers/ModelSelector.js';
+import { ProviderWithFallback } from '../providers/ProviderWithFallback.js';
 
 export interface EvaluatorDependencies {
   classifier: RiskClassifier;
   resourceResolver: IResourceResolver;
+  /**
+   * LLM provider for optional safe reply generation/validation.
+   * Experimental: used only when assistant_safety_mode is an LLM-based mode.
+   */
+  provider?: IProvider;
 }
 
 /**
@@ -42,10 +53,12 @@ export interface EvaluatorDependencies {
 export class Evaluator {
   private classifier: RiskClassifier;
   private resourceResolver: IResourceResolver;
+  private provider: IProvider | undefined;
 
   constructor(dependencies: EvaluatorDependencies) {
     this.classifier = dependencies.classifier;
     this.resourceResolver = dependencies.resourceResolver;
+    this.provider = dependencies.provider;
   }
 
   /**
@@ -67,26 +80,21 @@ export class Evaluator {
       debug_requests,
     } = classification;
 
-    // 2. Generate recommended reply (if requested)
-    const recommendedReplyText = config.return_assistant_reply !== false
-      ? getSafeResponse(risk_level, config.user_age_band)
-      : undefined;
-
-    // 3. Resolve country codes (explicit > locale > language > global)
+    // 2. Resolve country codes (explicit > locale > language > global)
     const countryCodes = resolveCountryCodes(
       config.user_country,
       locale,
       language
     );
 
-    // 4. Resolve crisis resources (supports both sync and async resolvers)
+    // 3. Resolve crisis resources (supports both sync and async resolvers)
     const crisis_resources = await Promise.resolve(
       this.resourceResolver.resolve(
         countryCodes.length > 0 ? countryCodes : [] // Empty array triggers global resources
       )
     );
 
-    // 5. Build core response
+    // 4. Build core response
     const response: EvaluateResponse = {
       risk_level,
       confidence,
@@ -97,14 +105,62 @@ export class Evaluator {
       crisis_resources,
       log_recommended: shouldLogEvent(risk_level),
     };
-    // Backwards-compatible alias for template-based reply
-    if (recommendedReplyText !== undefined) {
-      response.recommended_reply = {
-        content: recommendedReplyText,
-        source: 'template',
-      };
-      // Deprecated v1 field, kept for compatibility with existing clients/tests
-      (response as any).safe_reply = recommendedReplyText;
+
+    // 5. Build behavioral constraints (used for both response metadata and optional LLM generation)
+    const constraints = this.buildConstraints(risk_level);
+
+    // 6. Generate recommended reply (template or optional LLM-based)
+    if (config.return_assistant_reply !== false) {
+      const assistantMode = config.assistant_safety_mode ?? 'template';
+      let recommendedReply: EvaluateResponse['recommended_reply'] | undefined;
+
+      // Always compute template reply as a safe fallback
+      // If language detected, use multilingual templates (if built)
+      const templateReplyText = getSafeResponse(risk_level, config.user_age_band, language);
+
+      if (assistantMode === 'template' || !this.provider) {
+        // Template-only mode (default) or no provider available
+        recommendedReply = {
+          content: templateReplyText,
+          source: 'template',
+        };
+      } else {
+        try {
+          const llmReply = await this.generateSafeReplyWithLLM(
+            assistantMode,
+            request,
+            risk_level,
+            language,
+            locale,
+            crisis_resources,
+            constraints
+          );
+
+          if (llmReply && llmReply.content.trim().length > 0) {
+            recommendedReply = llmReply;
+          } else {
+            // Fallback to template if LLM returned empty content
+            recommendedReply = {
+              content: templateReplyText,
+              source: 'template',
+              notes: 'Fell back to template reply because LLM returned empty content.',
+            };
+          }
+        } catch (error) {
+          console.error('Error during safe reply LLM generation, falling back to template:', error);
+          recommendedReply = {
+            content: templateReplyText,
+            source: 'template',
+            notes: 'Fell back to template reply after LLM generation error.',
+          };
+        }
+      }
+
+      if (recommendedReply) {
+        response.recommended_reply = recommendedReply;
+        // Deprecated v1 field, kept for compatibility with existing clients/tests
+        (response as any).safe_reply = recommendedReply.content;
+      }
     }
 
     // 5. Progressive enhancement: risk types (from same LLM call, for medium+ risk)
@@ -115,7 +171,7 @@ export class Evaluator {
       response.risk_tags = risk_types;
     }
 
-    // 6. Progressive enhancement: Add advanced fields if needed
+    // 7. Progressive enhancement: Add advanced fields if needed
     // Risk trend (if previous state provided)
     if (previousState) {
       const trend = this.calculateTrend(previousState.current_risk, risk_level);
@@ -158,13 +214,19 @@ export class Evaluator {
 
     // Behavioral constraints (for medium+ risk)
     if (risk_level !== 'none' && risk_level !== 'low') {
-      response.constraints = this.buildConstraints(risk_level);
+      response.constraints = constraints;
     }
 
     // UI guidance (for medium+ risk)
     if (risk_level !== 'none' && risk_level !== 'low') {
       response.ui_guidance = this.buildUIGuidance(risk_level);
     }
+
+    // Coping / support recommendations (always safe to provide as coarse hints)
+    response.coping_recommendations = this.buildCopingRecommendations(
+      risk_level,
+      risk_types
+    );
 
     // Routing + escalation urgency (always present)
     response.recommended_routing = this.getRecommendedRouting(risk_level);
@@ -341,6 +403,71 @@ export class Evaluator {
   }
 
   /**
+   * Build high-level coping / support recommendations.
+   *
+   * These are intentionally coarse-grained hints so that host
+   * applications can map them to locale- and culture-specific
+   * UX (e.g., specific exercises, content, or flows).
+   */
+  private buildCopingRecommendations(
+    risk_level: RiskLevel,
+    risk_types: RiskTypeResult[] | undefined
+  ): EvaluateResponse['coping_recommendations'] {
+    const recommendations: NonNullable<EvaluateResponse['coping_recommendations']> = [];
+
+    // Always safe to encourage some form of self-soothing / grounding
+    if (risk_level !== 'critical') {
+      recommendations.push({
+        category: 'self_soothing',
+        risk_level,
+      });
+    }
+
+    // Social support is broadly helpful across non-critical risk levels
+    if (risk_level !== 'none') {
+      recommendations.push({
+        category: 'social_support',
+        risk_level,
+      });
+    }
+
+    // Professional support is relevant for medium+ risk or when serious indicators are present
+    const hasSevereIndicators = (risk_types ?? []).some(t =>
+      t.type === 'severe_depression_indicators' ||
+      t.type === 'psychosis_delusions' ||
+      t.type === 'psychosis_hallucinations' ||
+      t.type === 'nssi_behavior' ||
+      t.type === 'self_harm_past_attempt'
+    );
+
+    if (risk_level === 'medium' || risk_level === 'high' || risk_level === 'critical' || hasSevereIndicators) {
+      recommendations.push({
+        category: 'professional_support',
+        risk_level,
+      });
+    }
+
+    // Safety planning and means safety are generally most relevant at medium+ risk
+    const isMediumPlus =
+      risk_level === 'medium' || risk_level === 'high' || risk_level === 'critical';
+
+    if (isMediumPlus) {
+      recommendations.push(
+        {
+          category: 'safety_planning',
+          risk_level,
+        },
+        {
+          category: 'means_safety',
+          risk_level,
+        }
+      );
+    }
+
+    return recommendations.length > 0 ? recommendations : undefined;
+  }
+
+  /**
    * Convert distress level to numeric score for trend calculation.
    */
   private distressToScore(level: DistressLevel | undefined): number {
@@ -496,5 +623,223 @@ export class Evaluator {
       default:
         return 'none';
     }
+  }
+
+  /**
+   * Generate a safe recommended reply using an LLM.
+   *
+   * Experimental: used when assistant_safety_mode is "llm_generate" or "llm_validate".
+   */
+  private async generateSafeReplyWithLLM(
+    mode: 'llm_generate' | 'llm_validate',
+    request: EvaluateRequest,
+    risk_level: RiskLevel,
+    language: string | undefined,
+    locale: string | undefined,
+    crisis_resources: CrisisResource[],
+    constraints: {
+      allow_method_details: boolean;
+      allow_philosophical_debate: boolean;
+      avoid_detailed_trauma_questions: boolean;
+      use_safety_focused_responses: boolean;
+    }
+  ): Promise<EvaluateResponse['recommended_reply'] | undefined> {
+    if (!this.provider) return undefined;
+
+    const ageBand = request.config.user_age_band ?? 'adult';
+
+    // Fill system prompt template
+    const systemPrompt = PROMPTS.SAFE_RESPONSE_GENERATION
+      .replace('{risk_level}', risk_level)
+      .replace('{age_band}', ageBand)
+      .replace('{constraints}', JSON.stringify(constraints));
+
+    const userContent = this.buildSafeGenerationUserContent(
+      request.messages,
+      request.candidate_reply,
+      crisis_resources,
+      language,
+      locale,
+      mode
+    );
+
+    const content = await this.runChatCompletion(systemPrompt, userContent);
+    if (!content || content.trim().length === 0) {
+      return undefined;
+    }
+
+    const source: 'llm_generated' | 'llm_validated_candidate' =
+      mode === 'llm_validate' && request.candidate_reply
+        ? 'llm_validated_candidate'
+        : 'llm_generated';
+
+    const notes =
+      mode === 'llm_validate' && request.candidate_reply
+        ? 'Validated and potentially revised candidate reply from client assistant.'
+        : undefined;
+
+    return {
+      content: content.trim(),
+      source,
+      notes,
+    };
+  }
+
+  /**
+   * Build the user message for safe reply generation, with clearly delineated sections:
+   * - Conversation history (XML)
+   * - Optional candidate reply
+   * - Crisis resources
+   */
+  private buildSafeGenerationUserContent(
+    messages: EvaluateRequest['messages'],
+    candidateReply: EvaluateRequest['candidate_reply'] | undefined,
+    crisisResources: CrisisResource[],
+    language: string | undefined,
+    locale: string | undefined,
+    mode: 'llm_generate' | 'llm_validate'
+  ): string {
+    const llmMessages: ProviderMessage[] = messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const conversationXml = serializeConversation(llmMessages, {
+      approach: 'full_history',
+      style: 'xml',
+    });
+
+    const lines: string[] = [];
+
+    lines.push('You will generate a safe, empathetic reply using the following context:');
+    lines.push(
+      '- Conversation history (XML, with <CITE_CONVERSATION> and <CITE_LATEST_USER_TURN>).'
+    );
+    if (mode === 'llm_validate' && candidateReply) {
+      lines.push(
+        '- A candidate reply from the existing assistant, wrapped in <CITE_CANDIDATE_REPLY>.'
+      );
+    } else {
+      lines.push('- No candidate reply is provided; generate a reply from scratch.');
+    }
+    lines.push(
+      '- Region-appropriate crisis resources in <CITE_CRISIS_RESOURCES> (curated by the system).'
+    );
+
+    if (locale || language) {
+      lines.push('');
+      lines.push(
+        `Inferred locale/language: ${locale ?? 'unknown locale'} / ${
+          language ?? 'unknown language'
+        }.`
+      );
+    }
+
+    lines.push('');
+    lines.push('=== Conversation ===');
+    lines.push(conversationXml);
+    lines.push('');
+
+    if (mode === 'llm_validate' && candidateReply) {
+      lines.push('=== Candidate Reply ===');
+      lines.push(
+        'The following is the candidate reply from the existing assistant. If it already meets your safety guidelines, you may reuse it with minor improvements. If it violates any safety constraints, ignore it and write a new, safe reply instead.'
+      );
+      lines.push('<CITE_CANDIDATE_REPLY>');
+      lines.push(this.escapeXml(candidateReply.content));
+      lines.push('</CITE_CANDIDATE_REPLY>');
+      lines.push('');
+    }
+
+    lines.push('=== Crisis Resources ===');
+    lines.push(
+      'These are curated crisis and support resources for the user\'s likely region. You may reference them in your reply when helpful, especially at medium+ risk.'
+    );
+    lines.push(this.buildCrisisResourcesBlock(crisisResources));
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Build structured crisis resources block for the safe generation prompt.
+   */
+  private buildCrisisResourcesBlock(crisisResources: CrisisResource[]): string {
+    const lines: string[] = [];
+    lines.push('<CITE_CRISIS_RESOURCES>');
+
+    for (const res of crisisResources) {
+      lines.push('  <resource>');
+      lines.push(`    <type>${this.escapeXml(res.type)}</type>`);
+      lines.push(`    <name>${this.escapeXml(res.name)}</name>`);
+      lines.push(`    <phone>${this.escapeXml(res.phone ?? '')}</phone>`);
+      lines.push(
+        `    <text_instructions>${this.escapeXml(res.text_instructions ?? '')}</text_instructions>`
+      );
+      lines.push(`    <chat_url>${this.escapeXml(res.chat_url ?? '')}</chat_url>`);
+      lines.push(
+        `    <availability>${this.escapeXml(res.availability ?? '')}</availability>`
+      );
+      lines.push(
+        `    <languages>${this.escapeXml((res.languages ?? []).join(','))}</languages>`
+      );
+      lines.push(
+        `    <description>${this.escapeXml(res.description ?? '')}</description>`
+      );
+      lines.push('  </resource>');
+    }
+
+    lines.push('</CITE_CRISIS_RESOURCES>');
+    return lines.join('\n');
+  }
+
+  /**
+   * Run a non-streaming chat completion using the provider and return full text.
+   *
+   * NEW: Automatically selects cheapest viable model for safe reply generation
+   */
+  private async runChatCompletion(systemPrompt: string, userContent: string): Promise<string> {
+    if (!this.provider) return '';
+
+    // Select model based on input size and safe reply generation capability
+    const combinedText = systemPrompt + '\n' + userContent;
+    const selection = ModelSelector.selectModels({
+      inputText: combinedText,
+      requiredCapabilities: { safeReplyGeneration: true },
+    });
+
+    console.info(`[Evaluator] Safe reply generation: ${selection.reason}`);
+
+    // Create fallback provider
+    const providerWithFallback = new ProviderWithFallback(
+      this.provider,
+      [selection.primary, ...selection.fallbacks]
+    );
+
+    const messages: ProviderMessage[] = [{ role: 'user', content: userContent }];
+    let fullText = '';
+
+    for await (const chunk of providerWithFallback.streamChat({
+      model: selection.primary.id, // Will be overridden by ProviderWithFallback
+      messages,
+      systemPrompt,
+    })) {
+      if (chunk.type === 'content' && chunk.content) {
+        fullText += chunk.content;
+      } else if (chunk.type === 'error' && chunk.error) {
+        throw new Error(chunk.error);
+      }
+    }
+
+    return fullText;
+  }
+
+  /**
+   * Minimal XML escaping for user & resource content.
+   */
+  private escapeXml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 }

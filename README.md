@@ -159,13 +159,37 @@ Transparent, auditable, and can run entirely on your infrastructure. No vendor l
 Authorization: Bearer cite_live_xxxxx
 ```
 
+**Response (simplified):**
+
+- **Core fields** (always present):
+  - `risk_level` (`none | low | medium | high | critical`)
+  - `confidence` (0.0–1.0)
+  - `explanation` (human-readable rationale)
+  - `show_crisis_resources`, `highlight_urgency`, `allow_method_details`
+  - `crisis_resources[]` (region-specific crisis lines / services)
+  - `log_recommended`
+- **Assistant reply:**
+  - `safe_reply` – legacy field containing the reply text
+  - `recommended_reply` – canonical reply object:
+    - `content` – what you should send to the user
+    - `source` – `"template"` (default) or LLM-based (`"llm_generated"`, `"llm_validated_candidate"`, experimental)
+- **Advanced fields (optional, for richer integrations):**
+  - `risk_types` / `risk_tags` – structured C-SSRS/DSM-5–inspired indicators (e.g. `self_harm_passive_ideation`)
+  - `distress_level`, `distress_trend` – non-suicidal distress tracking
+  - `risk_state` – conversation-level state for trend tracking (you send it back on the next call)
+  - `actions` – required/recommended actions for your system (e.g. “show crisis resources”, “limit further chat”)
+  - `constraints` – behavioral constraints for your assistant (e.g. disallow method discussion at medium+ risk)
+  - `ui_guidance` – simple flags to drive your UI (show resources, require acknowledgement, etc.)
+  - `recommended_routing`, `escalation_urgency` – how urgently to route for human review
+  - `coping_recommendations` – high-level coping/support categories (e.g. `self_soothing`, `social_support`, `professional_support`, `safety_planning`, `means_safety`) that your app can map to locale-appropriate UX
+
 ### Backend Architecture (`lib/`)
 
 ```
 lib/
 ├── evaluation/
 │   ├── Evaluator.ts           # Main orchestrator
-│   └── types.ts                # API request/response types
+│   └── types.ts               # API request/response types
 ├── classification/
 │   ├── RiskClassifier.ts       # Single or multi-judge classification
 │   ├── judges/
@@ -173,16 +197,20 @@ lib/
 │   │   └── RiskLevelJudge.ts   # Combined risk level + types classification
 │   └── types/                  # Classification scales & types
 ├── responses/
-│   └── templates.ts            # Safe response templates by risk level
+│   ├── templates.ts                # Safe response templates by risk level (English)
+│   └── templates.multilingual.ts  # Auto-generated localized templates (via scripts/translate-templates.ts)
 ├── resources/
 │   ├── DatabaseResourceResolver.ts  # Database-backed resolver
 │   └── registry.ts             # Fallback static resources
 ├── prompts/
 │   └── templates.ts            # Centralized LLM prompts
 └── providers/
-    ├── IProvider.ts            # LLM provider interface
-    ├── OpenRouterProvider.ts   # Production provider
-    └── FakeProvider.ts         # Testing provider
+    ├── IProvider.ts              # LLM provider interface
+    ├── OpenRouterProvider.ts     # Production provider (OpenRouter)
+    ├── FakeProvider.ts           # Testing provider (no network calls)
+    ├── ModelRegistry.ts          # Known models and capabilities
+    ├── ModelSelector.ts          # Cheapest viable model selection
+    └── ProviderWithFallback.ts   # Automatic fallback across multiple models
 ```
 
 ### SvelteKit App (`src/`)
@@ -441,8 +469,8 @@ Untrusted user content always in user role, never in system prompts. Prevents pr
 pnpm test
 ```
 - Uses `FakeProvider` with mocked responses
-- 32 tests covering all components
-- Runs in ~300ms
+- Covers classifier, evaluator, resource resolver, and utilities
+- Runs quickly (suitable for frequent local runs)
 
 ### E2E Tests (Live LLM Validation)
 ```bash
@@ -456,20 +484,10 @@ DEBUG_CLASSIFICATION=true pnpm test:llm
 pnpm test:llm:log
 ```
 - Uses real OpenRouter API
-- 7 integration tests + 6 validation tests
-- Validates actual classification accuracy
+- Includes integration tests for the full evaluation pipeline and live validation suites
+- Validates actual classification accuracy and failure modes across one or more models
 - Shows raw LLM responses and parsed results
-- **New:** Logs all payloads to `test-logs/` for analysis ([docs](docs/test-logging.md))
-
-### Test Coverage
-- ✅ Resource resolver: 14 tests
-- ✅ Risk classifier: 8 tests
-- ✅ Evaluator: 10 tests
-- ✅ Integration (E2E): 7 tests
-- ✅ Validation (C-SSRS levels): 6 tests
-- **Total: 45 tests, 100% passing**
-
----
+- Logs payloads to `test-logs/` for analysis ([docs](docs/test-logging.md))
 
 ## Validation Results (Live LLM)
 

@@ -99,6 +99,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const evaluator = new Evaluator({
       classifier,
       resourceResolver,
+      provider,
     });
 
     // 6. Evaluate (with dry run check)

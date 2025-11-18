@@ -107,6 +107,19 @@ export interface EvaluateConfig {
   return_assistant_reply?: boolean;
 
   /**
+   * How CITE should generate the recommended reply.
+   *
+   * - "template" (default): use static, pre-reviewed templates only.
+   * - "llm_generate": use an LLM (via SAFE_RESPONSE_GENERATION) to generate
+   *   a safe reply from scratch, using conversation context + crisis resources.
+   * - "llm_validate": use an LLM to validate and, if needed, revise a
+   *   client-provided candidate_reply into a safe version.
+   *
+   * NOTE: LLM-based modes are experimental and may change in future versions.
+   */
+  assistant_safety_mode?: 'template' | 'llm_generate' | 'llm_validate';
+
+  /**
    * Use multiple judges for higher confidence
    * Default: false (single judge)
    */
@@ -200,6 +213,38 @@ export interface EvaluateResponse {
    * Whether this event should be logged
    */
   log_recommended: boolean;
+
+  /**
+   * High-level coping / support categories recommended for this
+   * conversation. These are intentionally coarse-grained so that
+   * host applications can map them to locale- and culture-specific
+   * UX (e.g., specific exercises, articles, or flows).
+   *
+   * NOTE: These are hints, not prescriptions, and are safe to ignore.
+   */
+  coping_recommendations?: Array<{
+    /**
+     * Coarse category of coping / support action being suggested.
+     *
+     * - "self_soothing": grounding, breathing, sensory calming, etc.
+     * - "social_support": reaching out to trusted friends/family/other supporters.
+     * - "professional_support": talking with clinicians, counselors, or helplines.
+     * - "safety_planning": identifying warning signs, coping strategies, supports, reasons for living.
+     * - "means_safety": reducing access to potential self-harm methods.
+     */
+    category:
+      | 'self_soothing'
+      | 'social_support'
+      | 'professional_support'
+      | 'safety_planning'
+      | 'means_safety';
+
+    /**
+     * Risk level this recommendation is primarily tied to.
+     * This helps integrators decide when to surface which actions.
+     */
+    risk_level: RiskLevel;
+  }>;
 
   // --- Advanced fields (progressive enhancement) ---
 

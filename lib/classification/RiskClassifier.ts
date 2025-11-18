@@ -7,38 +7,93 @@ import type {
   ClassificationConfig,
 } from './types/index.js';
 import { RISK_LEVEL_SCORES, scoreToRiskLevel } from './types/index.js';
+import { ModelSelector } from '../providers/ModelSelector.js';
+import { ProviderWithFallback } from '../providers/ProviderWithFallback.js';
+import { serializeConversation } from './ConversationSerializer.js';
 
 /**
  * Risk Classifier
  *
  * Orchestrates risk classification using one or more judges
  *
- * Default: Single judge (fast, cheap)
+ * Default: Single judge (fast, cheap) with automatic model selection
  * Optional: Multiple judges with consensus (more reliable, higher cost)
+ *
+ * NEW: Automatically selects cheapest viable model based on input size,
+ * with fallback to more expensive models on failure/timeout.
  */
 export class RiskClassifier {
-  private judges: RiskLevelJudge[];
+  private baseProvider: IProvider;
   private useMultipleJudges: boolean;
 
   constructor(provider: IProvider, config: ClassificationConfig = {}) {
+    this.baseProvider = provider;
     this.useMultipleJudges = config.useMultipleJudges ?? false;
+  }
+
+  /**
+   * Create judges for the given messages
+   *
+   * Selects models based on input size and creates fallback providers
+   */
+  private createJudges(messages: Message[]): RiskLevelJudge[] {
+    // Estimate input size
+    const conversationText = serializeConversation(messages, {
+      approach: 'full_history',
+      style: 'xml',
+    });
 
     if (this.useMultipleJudges) {
-      // Multi-judge mode: Use different models for diversity
-      const models = config.models || [
-        'anthropic/claude-haiku-4.5',
-        'qwen/qwen-3-30b',
-        'openai/gpt-4o-mini',
-      ];
+      // Multi-judge mode: Create 3 different judges with different model selections
+      // This provides diversity while still being cost-efficient
 
-      const judgeCount = config.judgeCount ?? 3;
-      this.judges = models
-        .slice(0, judgeCount)
-        .map(model => new RiskLevelJudge(provider, model));
+      // Judge 1: Cheapest viable model
+      const selection1 = ModelSelector.selectModels({
+        inputText: conversationText,
+        requiredCapabilities: { riskClassification: true },
+      });
+
+      // Judge 2: Second-cheapest (first fallback from judge 1)
+      const models2 = selection1.fallbacks.length > 0
+        ? [selection1.fallbacks[0], selection1.primary, ...selection1.fallbacks.slice(1)]
+        : [selection1.primary, ...selection1.fallbacks];
+
+      // Judge 3: Third option or back to primary
+      const models3 = selection1.fallbacks.length > 1
+        ? [selection1.fallbacks[1], selection1.primary, ...selection1.fallbacks.filter((_, i) => i !== 1)]
+        : [selection1.primary, ...selection1.fallbacks];
+
+      console.info(`[RiskClassifier] Multi-judge mode: ${selection1.reason}`);
+
+      return [
+        new RiskLevelJudge(
+          new ProviderWithFallback(this.baseProvider, [selection1.primary, ...selection1.fallbacks]),
+          selection1.primary.id
+        ),
+        new RiskLevelJudge(
+          new ProviderWithFallback(this.baseProvider, models2),
+          models2[0].id
+        ),
+        new RiskLevelJudge(
+          new ProviderWithFallback(this.baseProvider, models3),
+          models3[0].id
+        ),
+      ];
     } else {
-      // Single-judge mode (default)
-      const model = config.models?.[0] || 'anthropic/claude-haiku-4.5';
-      this.judges = [new RiskLevelJudge(provider, model)];
+      // Single-judge mode: Use cheapest viable model with fallbacks
+      const selection = ModelSelector.selectModels({
+        inputText: conversationText,
+        requiredCapabilities: { riskClassification: true },
+      });
+
+      console.info(`[RiskClassifier] Single-judge mode: ${selection.reason}`);
+
+      return [
+        new RiskLevelJudge(
+          new ProviderWithFallback(this.baseProvider, [selection.primary, ...selection.fallbacks]),
+          selection.primary.id
+        ),
+      ];
     }
   }
 
@@ -47,6 +102,8 @@ export class RiskClassifier {
    *
    * Single judge: Returns that judge's result
    * Multiple judges: Returns averaged result with agreement metric
+   *
+   * NEW: Automatically selects models based on input size
    */
   async classifyRisk(messages: Message[], includeDebug: boolean = false): Promise<{
     risk_level: RiskLevel;
@@ -67,9 +124,12 @@ export class RiskClassifier {
       maxTokens: number;
     }>;
   }> {
-    if (this.judges.length === 1) {
+    // Create judges with automatic model selection
+    const judges = this.createJudges(messages);
+
+    if (judges.length === 1) {
       // Single judge mode
-      const result = await this.judges[0].judge(messages);
+      const result = await judges[0].judge(messages);
 
       const response: any = {
         risk_level: result.level,
@@ -81,15 +141,15 @@ export class RiskClassifier {
       };
 
       // Include debug info if requested
-      if (includeDebug && this.judges[0].lastRequest) {
-        response.debug_requests = [this.judges[0].lastRequest];
+      if (includeDebug && judges[0].lastRequest) {
+        response.debug_requests = [judges[0].lastRequest];
       }
 
       return response;
     }
 
     // Multi-judge mode
-    const results = await Promise.all(this.judges.map(judge => judge.judge(messages)));
+    const results = await Promise.all(judges.map(judge => judge.judge(messages)));
 
     // Calculate agreement using variance of scores
     const scores = results.map(r => RISK_LEVEL_SCORES[r.level]);
@@ -141,7 +201,7 @@ export class RiskClassifier {
 
     // Include debug info if requested
     if (includeDebug) {
-      response.debug_requests = this.judges
+      response.debug_requests = judges
         .map(judge => judge.lastRequest)
         .filter(req => req !== undefined);
     }

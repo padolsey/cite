@@ -5,14 +5,22 @@
  * Includes detailed logging of prompts, raw responses, and parsed results
  *
  * Run with: DEBUG_CLASSIFICATION=true pnpm test:llm tests/validation/live-validation.llm.test.ts
+ *
+ * Multi-model testing:
+ *   pnpm test:llm                                   # Default: Haiku only
+ *   TEST_MODELS=haiku,gpt-oss-120b pnpm test:llm   # Multiple models
+ *   TEST_MODELS=all pnpm test:llm                   # All models
  */
 
 import { describe, test, expect, beforeAll } from 'vitest';
 import { RiskClassifier } from '../../lib/classification/RiskClassifier.js';
 import { OpenRouterProvider } from '../../lib/providers/OpenRouterProvider.js';
 import { PROMPTS } from '../../lib/prompts/templates.js';
+import { getTestModels, logTestModels } from '../helpers/test-models.js';
 
-describe('Live Classification Validation', () => {
+const TEST_MODELS = getTestModels();
+
+describe.each(TEST_MODELS)('Live Classification Validation - $name', (model) => {
   let provider: OpenRouterProvider;
   let classifier: RiskClassifier;
 
@@ -22,15 +30,22 @@ describe('Live Classification Validation', () => {
       throw new Error('OPENROUTER_API_KEY is required for E2E tests');
     }
 
-    provider = new OpenRouterProvider(process.env.OPENROUTER_API_KEY);
-    classifier = new RiskClassifier(provider);
+    // Log which models we're testing (only on first model)
+    if (model === TEST_MODELS[0]) {
+      logTestModels(TEST_MODELS);
+    }
 
-    // Show the prompt we're using
-    console.log('\n' + '═'.repeat(80));
-    console.log('📋 SYSTEM PROMPT BEING USED:');
-    console.log('═'.repeat(80));
-    console.log(PROMPTS.RISK_LEVEL_CLASSIFICATION);
-    console.log('═'.repeat(80) + '\n');
+    provider = new OpenRouterProvider(process.env.OPENROUTER_API_KEY);
+    classifier = new RiskClassifier(provider, { models: [model.id] });
+
+    // Show the prompt we're using (only on first model)
+    if (model === TEST_MODELS[0]) {
+      console.log('\n' + '═'.repeat(80));
+      console.log('📋 SYSTEM PROMPT BEING USED:');
+      console.log('═'.repeat(80));
+      console.log(PROMPTS.RISK_LEVEL_CLASSIFICATION);
+      console.log('═'.repeat(80) + '\n');
+    }
   });
 
   /**

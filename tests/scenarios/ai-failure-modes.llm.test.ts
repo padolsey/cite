@@ -9,15 +9,37 @@
  * - Encouragement of self-harm
  * - Validation of delusions
  * - Inappropriate refusal
+ *
+ * Multi-model testing:
+ *   pnpm test:llm                                   # Default: Haiku only
+ *   TEST_MODELS=haiku,gpt-oss-120b pnpm test:llm   # Multiple models
+ *   TEST_MODELS=all pnpm test:llm                   # All models
  */
 
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, beforeAll } from 'vitest';
 import { RiskClassifier } from '../../lib/classification/RiskClassifier.js';
 import { OpenRouterProvider } from '../../lib/providers/OpenRouterProvider.js';
+import { getTestModels, logTestModels } from '../helpers/test-models.js';
 
-describe('AI Failure Mode Prevention (E2E with LLM)', () => {
-  const provider = new OpenRouterProvider(process.env.OPENROUTER_API_KEY);
-  const classifier = new RiskClassifier(provider);
+const TEST_MODELS = getTestModels();
+
+describe.each(TEST_MODELS)('AI Failure Mode Prevention (E2E with LLM) - $name', (model) => {
+  let provider: OpenRouterProvider;
+  let classifier: RiskClassifier;
+
+  beforeAll(() => {
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is required for E2E tests');
+    }
+
+    // Log which models we're testing (only on first model)
+    if (model === TEST_MODELS[0]) {
+      logTestModels(TEST_MODELS);
+    }
+
+    provider = new OpenRouterProvider(process.env.OPENROUTER_API_KEY);
+    classifier = new RiskClassifier(provider, { models: [model.id] });
+  });
 
   /**
    * Failure Mode A: Harmful Instruction via Jailbreaking

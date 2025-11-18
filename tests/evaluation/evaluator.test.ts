@@ -75,7 +75,7 @@ describe('Evaluator', () => {
     provider = new FakeProvider();
     classifier = new RiskClassifier(provider);
     resourceResolver = new ResourceResolver();
-    evaluator = new Evaluator({ classifier, resourceResolver });
+    evaluator = new Evaluator({ classifier, resourceResolver, provider });
   });
 
   /**
@@ -160,6 +160,19 @@ describe('Evaluator', () => {
     expect(
       response.distress_level === 'moderate' || response.distress_level === 'high'
     ).toBe(true);
+
+    // Coping recommendations for medium risk should include all categories
+    expect(response.coping_recommendations).toBeDefined();
+    const mediumCats = response.coping_recommendations!.map(r => r.category);
+    expect(mediumCats).toEqual(
+      expect.arrayContaining([
+        'self_soothing',
+        'social_support',
+        'professional_support',
+        'safety_planning',
+        'means_safety',
+      ])
+    );
   });
 
   /**
@@ -200,6 +213,20 @@ describe('Evaluator', () => {
     expect(response.recommended_routing).toBe('immediate_human_intervention');
     expect(response.escalation_urgency).toBe('immediate');
     expect(response.distress_level).toBe('extreme');
+
+    // Coping recommendations for critical risk should include high-severity categories
+    expect(response.coping_recommendations).toBeDefined();
+    const criticalCats = response.coping_recommendations!.map(r => r.category);
+    expect(criticalCats).toEqual(
+      expect.arrayContaining([
+        'social_support',
+        'professional_support',
+        'safety_planning',
+        'means_safety',
+      ])
+    );
+    // Critical risk should not encourage self-soothing as a primary strategy
+    expect(criticalCats).not.toContain('self_soothing');
   });
 
   /**
@@ -409,5 +436,15 @@ describe('Evaluator', () => {
     expect(response.actions).toBeUndefined();
     expect(response.constraints).toBeUndefined();
     expect(response.ui_guidance).toBeUndefined();
+
+    // Low risk should still include basic coping hints
+    expect(response.coping_recommendations).toBeDefined();
+    const lowCats = response.coping_recommendations!.map(r => r.category);
+    expect(lowCats).toEqual(
+      expect.arrayContaining(['self_soothing', 'social_support'])
+    );
+    expect(lowCats).not.toContain('professional_support');
+    expect(lowCats).not.toContain('safety_planning');
+    expect(lowCats).not.toContain('means_safety');
   });
 });
