@@ -11,8 +11,14 @@
  * Simple by default, progressively enhanced
  */
 
-import type { EvaluateRequest, EvaluateResponse, RiskState } from './types.js';
-import type { RiskLevel } from '../classification/types/index.js';
+import type {
+  EvaluateRequest,
+  EvaluateResponse,
+  RiskState,
+  DistressLevel,
+  Trend,
+} from './types.js';
+import type { RiskLevel, RiskTypeResult } from '../classification/types/index.js';
 import { RiskClassifier } from '../classification/RiskClassifier.js';
 import type { IResourceResolver } from '../resources/IResourceResolver.js';
 import { resolveCountryCodes } from '../resources/LanguageToCountry.js';
@@ -61,8 +67,8 @@ export class Evaluator {
       debug_requests,
     } = classification;
 
-    // 2. Generate safe response (if requested)
-    const safe_reply = config.return_assistant_reply !== false
+    // 2. Generate recommended reply (if requested)
+    const recommendedReplyText = config.return_assistant_reply !== false
       ? getSafeResponse(risk_level, config.user_age_band)
       : undefined;
 
@@ -88,20 +94,27 @@ export class Evaluator {
       show_crisis_resources: shouldShowCrisisResources(risk_level),
       highlight_urgency: shouldHighlightUrgency(risk_level),
       allow_method_details: allowMethodDetails(risk_level),
-      safe_reply,
       crisis_resources,
       log_recommended: shouldLogEvent(risk_level),
     };
+    // Backwards-compatible alias for template-based reply
+    if (recommendedReplyText !== undefined) {
+      response.recommended_reply = {
+        content: recommendedReplyText,
+        source: 'template',
+      };
+      // Deprecated v1 field, kept for compatibility with existing clients/tests
+      (response as any).safe_reply = recommendedReplyText;
+    }
 
     // 5. Progressive enhancement: risk types (from same LLM call, for medium+ risk)
     const isMediumPlus =
       risk_level === 'medium' || risk_level === 'high' || risk_level === 'critical';
     if (isMediumPlus && risk_types && risk_types.length > 0) {
       response.risk_types = risk_types;
+      response.risk_tags = risk_types;
     }
 
-    // 6. Progressive enhancement: Add advanced fields if needed
-    // Risk trend (if previous state provided)
     // 6. Progressive enhancement: Add advanced fields if needed
     // Risk trend (if previous state provided)
     if (previousState) {
@@ -112,6 +125,18 @@ export class Evaluator {
         risk_level,
         trend
       );
+
+      // Distress trend (if previous distress_level available)
+      const prevDistress = previousState.current_distress_level;
+      const currentDistress = this.getDistressLevel(risk_level, risk_types);
+      response.distress_level = currentDistress;
+      if (prevDistress) {
+        const distressTrend = this.calculateDistressTrend(prevDistress, currentDistress);
+        response.distress_trend = distressTrend;
+      }
+    } else {
+      // No previous state - still compute current distress_level
+      response.distress_level = this.getDistressLevel(risk_level, risk_types);
     }
 
     // Updated risk state (if conversation tracking enabled)
@@ -121,7 +146,8 @@ export class Evaluator {
         risk_level,
         confidence,
         previousState,
-        explanation
+        explanation,
+        response.distress_level
       );
     }
 
@@ -139,6 +165,10 @@ export class Evaluator {
     if (risk_level !== 'none' && risk_level !== 'low') {
       response.ui_guidance = this.buildUIGuidance(risk_level);
     }
+
+    // Routing + escalation urgency (always present)
+    response.recommended_routing = this.getRecommendedRouting(risk_level);
+    response.escalation_urgency = this.getEscalationUrgency(risk_level);
 
     // Agreement metric (if multiple judges used)
     if (agreement !== undefined) {
@@ -174,7 +204,7 @@ export class Evaluator {
   private calculateTrend(
     previousRisk: RiskLevel,
     currentRisk: RiskLevel
-  ): 'up' | 'down' | 'stable' | 'unknown' {
+  ): Trend {
     const prevScore = RISK_LEVEL_SCORES[previousRisk];
     const currScore = RISK_LEVEL_SCORES[currentRisk];
 
@@ -189,7 +219,7 @@ export class Evaluator {
   private getTrendExplanation(
     previousRisk: RiskLevel,
     currentRisk: RiskLevel,
-    trend: 'up' | 'down' | 'stable' | 'unknown'
+    trend: Trend
   ): string {
     if (trend === 'stable') {
       return `Risk level remains ${currentRisk}.`;
@@ -211,7 +241,8 @@ export class Evaluator {
     risk_level: RiskLevel,
     confidence: number,
     previousState: RiskState | undefined,
-    explanation: string
+    explanation: string,
+    currentDistress: DistressLevel | undefined
   ): RiskState {
     const now = new Date().toISOString();
     const currentScore = RISK_LEVEL_SCORES[risk_level];
@@ -241,6 +272,27 @@ export class Evaluator {
       previousState?.attempt_mentioned ||
       /attempt|tried to|planning to/i.test(explanation);
 
+    // Distress levels and trend
+    const prevMaxDistressScore = previousState?.max_distress_level
+      ? this.distressToScore(previousState.max_distress_level)
+      : 0;
+    const currentDistressScore = currentDistress
+      ? this.distressToScore(currentDistress)
+      : 0;
+
+    const max_distress_level: DistressLevel | undefined =
+      currentDistressScore > prevMaxDistressScore
+        ? currentDistress
+        : previousState?.max_distress_level;
+
+    const distress_trend: Trend | undefined =
+      previousState?.current_distress_level && currentDistress
+        ? this.calculateDistressTrend(
+            previousState.current_distress_level,
+            currentDistress
+          )
+        : undefined;
+
     return {
       conversation_id,
       version: (previousState?.version || 0) + 1,
@@ -250,9 +302,75 @@ export class Evaluator {
       trend,
       last_high_risk_at,
       attempt_mentioned,
+      max_distress_level,
+      current_distress_level: currentDistress,
+      distress_trend,
       safety_summary: explanation,
       updated_at: now,
     };
+  }
+
+  /**
+   * Map risk level and risk types to an overall distress level
+   * (heuristic v1 implementation).
+   */
+  private getDistressLevel(
+    risk_level: RiskLevel,
+    risk_types: RiskTypeResult[] | undefined
+  ): DistressLevel {
+    const types = risk_types ?? [];
+    const hasSevereDepression = types.some(t => t.type === 'severe_depression_indicators');
+    const hasPanic = types.some(t => t.type === 'anxiety_panic_indicators');
+    const hasGeneralDistress = types.some(t => t.type === 'general_distress');
+
+    switch (risk_level) {
+      case 'critical':
+        return 'extreme';
+      case 'high':
+        return 'high';
+      case 'medium':
+        if (hasSevereDepression || hasPanic) return 'high';
+        return 'moderate';
+      case 'low':
+        if (hasSevereDepression || hasPanic || hasGeneralDistress) return 'moderate';
+        return 'low';
+      case 'none':
+      default:
+        return hasGeneralDistress ? 'moderate' : 'low';
+    }
+  }
+
+  /**
+   * Convert distress level to numeric score for trend calculation.
+   */
+  private distressToScore(level: DistressLevel | undefined): number {
+    switch (level) {
+      case 'low':
+        return 0.25;
+      case 'moderate':
+        return 0.5;
+      case 'high':
+        return 0.75;
+      case 'extreme':
+        return 1.0;
+      default:
+        return 0;
+    }
+  }
+
+  /**
+   * Calculate distress trend between two levels.
+   */
+  private calculateDistressTrend(
+    previous: DistressLevel,
+    current: DistressLevel
+  ): Trend {
+    const prevScore = this.distressToScore(previous);
+    const currScore = this.distressToScore(current);
+
+    if (currScore > prevScore) return 'up';
+    if (currScore < prevScore) return 'down';
+    return 'stable';
   }
 
   /**
@@ -337,5 +455,46 @@ export class Evaluator {
       require_acknowledgement: isHighRisk,
       limit_remaining_messages: isCritical ? 2 : undefined,
     };
+  }
+
+  /**
+   * Map risk level to recommended routing.
+   */
+  private getRecommendedRouting(
+    risk_level: RiskLevel
+  ): EvaluateResponse['recommended_routing'] {
+    switch (risk_level) {
+      case 'critical':
+        return 'immediate_human_intervention';
+      case 'high':
+        return 'urgent_human_review';
+      case 'medium':
+        return 'show_crisis_resources';
+      case 'low':
+        return 'non_urgent_support';
+      case 'none':
+      default:
+        return 'no_escalation_needed';
+    }
+  }
+
+  /**
+   * Map risk level to escalation urgency.
+   */
+  private getEscalationUrgency(
+    risk_level: RiskLevel
+  ): EvaluateResponse['escalation_urgency'] {
+    switch (risk_level) {
+      case 'critical':
+        return 'immediate';
+      case 'high':
+        return 'urgent';
+      case 'medium':
+        return 'routine';
+      case 'low':
+      case 'none':
+      default:
+        return 'none';
+    }
   }
 }

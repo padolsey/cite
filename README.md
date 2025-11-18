@@ -170,8 +170,7 @@ lib/
 │   ├── RiskClassifier.ts       # Single or multi-judge classification
 │   ├── judges/
 │   │   ├── BaseJudge.ts        # Abstract base for all judges
-│   │   ├── RiskLevelJudge.ts   # Risk level classification
-│   │   └── RiskTypesJudge.ts   # Specific risk types
+│   │   └── RiskLevelJudge.ts   # Combined risk level + types classification
 │   └── types/                  # Classification scales & types
 ├── responses/
 │   └── templates.ts            # Safe response templates by risk level

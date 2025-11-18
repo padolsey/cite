@@ -106,6 +106,16 @@ describe('Evaluator', () => {
     expect(response.log_recommended).toBe(false);
     expect(response.safe_reply).toBeDefined();
     expect(response.crisis_resources.length).toBeGreaterThan(0);
+    // New recommended_reply should mirror safe_reply for now
+    expect(response.recommended_reply?.content).toBe(response.safe_reply);
+    expect(response.recommended_reply?.source).toBe('template');
+    // New routing/urgency fields
+    expect(response.recommended_routing).toBe('no_escalation_needed');
+    expect(response.escalation_urgency).toBe('none');
+    // Distress should be low or moderate, but not high/extreme
+    expect(
+      response.distress_level === 'low' || response.distress_level === 'moderate'
+    ).toBe(true);
   });
 
   /**
@@ -144,6 +154,12 @@ describe('Evaluator', () => {
 
     expect(response.ui_guidance).toBeDefined();
     expect(response.ui_guidance?.show_crisis_resources).toBe(true);
+    // New fields
+    expect(response.recommended_routing).toBe('show_crisis_resources');
+    expect(response.escalation_urgency).toBe('routine');
+    expect(
+      response.distress_level === 'moderate' || response.distress_level === 'high'
+    ).toBe(true);
   });
 
   /**
@@ -180,6 +196,10 @@ describe('Evaluator', () => {
     expect(response.ui_guidance?.allow_further_chat).toBe(false);
     expect(response.ui_guidance?.require_acknowledgement).toBe(true);
     expect(response.ui_guidance?.limit_remaining_messages).toBe(2);
+    // New fields
+    expect(response.recommended_routing).toBe('immediate_human_intervention');
+    expect(response.escalation_urgency).toBe('immediate');
+    expect(response.distress_level).toBe('extreme');
   });
 
   /**
@@ -216,6 +236,9 @@ describe('Evaluator', () => {
     expect(responseMinor.safe_reply).toBeDefined();
     expect(responseAdult.safe_reply).not.toBe(responseMinor.safe_reply);
     expect(responseMinor.safe_reply).toContain('trusted adult');
+    // recommended_reply mirrors age-specific differences
+    expect(responseAdult.recommended_reply?.content).toBe(responseAdult.safe_reply);
+    expect(responseMinor.recommended_reply?.content).toBe(responseMinor.safe_reply);
   });
 
   /**
